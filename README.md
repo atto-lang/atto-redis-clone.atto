@@ -1,5 +1,11 @@
 # Atto Redis Clone
 
+## Real Atto guest execution (not just Rust)
+
+A compiler candidate actually executed source files from this repository: src/redis_kv_smoke.atto runs scalar-map SET/GET/DEL returning 42; src/redis_actor_guest.atto spawns a real Atto actor and emits set|get|delete. See [successful native Truffle guest CI](https://github.com/voxletra/voxletra-e2e/actions/runs/43039057038) and [Java compiler PR #2881](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2881).
+
+The proposed full actor storage/checkpoint implementation remains NOT_COMPILED and native Atto TCP listener and WAL/SST interfaces remain NOT_IMPLEMENTED. There is no Atto-versus-Rust server throughput ratio. Exact source identities and missing gates are documented in docs/NATIVE_GUEST_EXECUTION.md.
+
 This repository has **AttoLang actor source targets** and a **Rust-only executable reference**. Do not add Python implementations, Python tests or Python CI.
 
 ## Rust reference (std-only, Rust 1.85+, Unix)
