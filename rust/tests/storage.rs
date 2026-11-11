@@ -120,9 +120,14 @@ fn atto_audit_contracts_in_source_not_guest_execution() {
     let cp = include_str!("../../src/checkpoint.atto");
     assert!(kv.contains("SerialCommandLane.acquire(self)"));
     assert!(kv.contains("read_newest_owned"));
-    assert!(kv.contains("insert_reserved"));
+    assert!(kv.contains("insert_pre_reserved"));
+    assert!(kv.contains("reserve_capacity"));
+    assert!(!kv.contains("rt take reservation"));
     assert!(kv.contains("KvEntry(ack.lsn, None)"));
-    assert!(cp.contains("pause_and_drain_all_shard_lanes"));
+    assert!(cp.contains("freeze_at_global_durable_barrier"));
     assert!(cp.contains("prune_wal_through_global_fence"));
+    assert!(cp.contains("val generation_id = generation.generation_id;"));
+    assert!(cp.contains("rt borrow segment"));
+    assert!(!cp.contains("fence_guard.release()"));
     assert!(cp.contains("publish_manifest_and_fsync_parent"));
 }

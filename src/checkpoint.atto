@@ -6,12 +6,12 @@ async fnc checkpoint(
 ) -> Result<u64, StorageError> ::
   // Pause admissions and DRAIN every in-flight shard command through WAL+apply;
   // pausing mailbox delivery alone does not establish a consistent cut.
-  val fence_guard = await db.pause_and_drain_all_shard_lanes()?;
-  defer { fence_guard.release(); }
-
-  val fence_lsn = await wal.sync_barrier()?;
-  val frozen = await db.freeze_all_shards_through_lsn(fence_lsn)?;
-  fence_guard.release();
+  // The runtime primitive owns/relinquishes its admission fence internally.
+  // It must drain whole commands before taking the WAL durable barrier and
+  // return frozen immutable generations; no resource is released twice.
+  val cut = await db.freeze_at_global_durable_barrier(wal)?;
+  val fence_lsn = cut.fence_lsn;
+  val frozen = cut.into_owned_generations();
 
   val segments = await disk.write_sorted_sst_and_fsync(rt take frozen)?;
   val manifest = await disk.prepare_global_manifest(
@@ -31,11 +31,14 @@ async fnc spill_if_needed(
   val durable_lsn = await wal.sync_barrier()?;
   val frozen = await shard.rotate_memtable(per_shard_budget)?;
   if frozen as const generation then
+    // Capture generation identity BEFORE moving its payload.
+    val generation_id = generation.generation_id;
     val segment = await disk.write_sorted_sst_and_fsync(rt take generation)?;
-    // Manifest durable before pending memtable generation retired.
-    await disk.atomic_add_segment_to_manifest(segment)?;
+    // Manifest is committed by borrowing the segment metadata; the actor
+    // receives its ownership only after the durable publication completes.
+    await disk.atomic_add_segment_to_manifest(rt borrow segment)?;
     await shard.install_persisted_segment(
-      rt take segment, generation.generation_id
+      rt take segment, generation_id
     )?;
   fi
   return Ok();

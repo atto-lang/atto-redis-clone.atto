@@ -19,16 +19,27 @@ define serial actor WalWriter as
     WalRecord record, SyncPolicy policy
   ) -> Result<WalAck, StorageError> ::
     // The WAL lane must remain FIFO through fsync suspension.
+    val already_poisoned = self.handle_state(critical-read |s| -> {
+      return s.poisoned;
+    });
+    if already_poisoned then
+      return Err(StorageError.poisoned_wal());
+    fi
     val ack = await WalStorage.append_framed_crc(rt take record, policy)?;
-    self.handle_state(critical-write |s| -> {
+    val accepted = self.handle_state(critical-write |s| -> {
       if ack.lsn <= s.last_accepted_lsn then
         s.poisoned = true;
+        return false;
       fi
       s.last_accepted_lsn = ack.lsn;
       if ack.durable then
         s.last_durable_lsn = ack.lsn;
       fi
+      return true;
     });
+    if accepted eq false then
+      return Err(StorageError.invalid_lsn_order());
+    fi
     return Ok(ack);
   end
 
@@ -54,13 +65,16 @@ define serial actor KvShard as
     val ticket = await SerialCommandLane.acquire(self)?;
     defer { ticket.release(); }
     // Reserve fallible hashmap capacity BEFORE persistent log append.
-    val reservation = self.handle_state(critical-write |s| -> {
-      return s.active.reserve_for(rt borrow key, rt borrow value);
+    // Reserve capacity without returning any state-owned handle: a pointer
+    // or loan token retained across await would violate actor isolation.
+    val capacity = self.handle_state(critical-write |s| -> {
+      return s.active.reserve_capacity(rt borrow key, rt borrow value);
     });
+    capacity?;
     val record = WalRecord.set_from_borrow(rt borrow key, rt borrow value)?;
     val ack = await wal.append_owned(rt take record, SyncPolicy.always)?;
     self.handle_state(critical-write |s| -> {
-      s.active.insert_reserved(rt take reservation, rt take key,
+      s.active.insert_pre_reserved(rt take key,
         KvEntry(ack.lsn, Some(rt take value)));
       s.last_applied_lsn = ack.lsn;
       s.active_bytes = s.active.estimated_bytes();
@@ -73,14 +87,15 @@ define serial actor KvShard as
   ) -> Result<WalAck, StorageError> ::
     val ticket = await SerialCommandLane.acquire(self)?;
     defer { ticket.release(); }
-    val reservation = self.handle_state(critical-write |s| -> {
-      return s.active.reserve_for_tombstone(rt borrow key);
+    val capacity = self.handle_state(critical-write |s| -> {
+      return s.active.reserve_tombstone_capacity(rt borrow key);
     });
+    capacity?;
     val record = WalRecord.delete_from_borrow(rt borrow key)?;
     val ack = await wal.append_owned(rt take record, SyncPolicy.always)?;
     self.handle_state(critical-write |s| -> {
       // Never merely remove an entry: an old SST value might reappear.
-      s.active.insert_reserved(rt take reservation, rt take key,
+      s.active.insert_pre_reserved(rt take key,
         KvEntry(ack.lsn, None));
       s.last_applied_lsn = ack.lsn;
     });
