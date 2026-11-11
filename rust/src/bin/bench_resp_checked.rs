@@ -104,10 +104,10 @@ fn main()->io::Result<()>{
 mod tests{
     use super::*;use std::io::Cursor;
     #[test] fn decode_nil_empty_binary_and_count(){
-        assert_eq!(recv(&mut Cursor::new(b"$-1\r\n")),Ok(Reply::Bulk(None)));
-        assert_eq!(recv(&mut Cursor::new(b"$0\r\n\r\n")),Ok(Reply::Bulk(Some(vec![]))));
-        assert_eq!(recv(&mut Cursor::new(b"$2\r\n\x00\xff\r\n")),Ok(Reply::Bulk(Some(vec![0,255]))));
-        assert_eq!(recv(&mut Cursor::new(b":1\r\n")),Ok(Reply::Int(1)));
+        assert_eq!(recv(&mut Cursor::new(b"$-1\r\n")).unwrap(),Reply::Bulk(None));
+        assert_eq!(recv(&mut Cursor::new(b"$0\r\n\r\n")).unwrap(),Reply::Bulk(Some(vec![])));
+        assert_eq!(recv(&mut Cursor::new(b"$2\r\n\x00\xff\r\n")).unwrap(),Reply::Bulk(Some(vec![0,255])));
+        assert_eq!(recv(&mut Cursor::new(b":1\r\n")).unwrap(),Reply::Int(1));
     }
     #[test] fn reject_invalid_and_unbounded_replies(){
         for x in [b"-ERR\r\n".as_slice(),b"$4\r\nab".as_slice(),
