@@ -1,20 +1,24 @@
-name: Python storage oracle (not native AttoLang)
+name: Rust reference and Atto audit gates
 on:
   push:
   pull_request:
 permissions:
   contents: read
 jobs:
-  reference-only:
-    name: Python reference storage/protocol tests (not Atto guest)
+  rust-reference-only:
+    name: Rust reference tests; Atto guest NOT_EXECUTED
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          python-version: '3.12'
-      - name: Compile Python reference
-        run: PYTHONPATH=reference python -m compileall -q reference
-      - name: Execute storage and TCP tests
-        run: PYTHONWARNINGS=error::ResourceWarning PYTHONPATH=reference python -m unittest discover -s reference/tests -v
+          components: rustfmt, clippy
+      - name: Format Rust
+        run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+      - name: Lint Rust
+        run: cargo clippy --manifest-path rust/Cargo.toml --all-targets --offline -- -D warnings
+      - name: Execute Rust correctness tests
+        run: cargo test --manifest-path rust/Cargo.toml --all-targets --offline -- --nocapture
+      - name: Compile Rust RESP benchmark
+        run: cargo build --manifest-path rust/Cargo.toml --release --bin bench_resp --offline
