@@ -47,7 +47,10 @@ The driver performs 50% SET, 40% GET, 10% DEL (fixed 64-byte values, 1,024 key w
 
 ### Layout
 
-- src/kv_database.atto: sealed actor-owned shard target, WAL and per-generation command admission\n- src/redis_supervision.atto: root/storage/network/maintenance supervisor target (NOT_COMPILED)\n- docs/SUPERVISION_AND_RECOVERY.md: failure policy, epoch fencing and native acceptance gates\n- rust/tests/supervision_contract.rs: Rust-only executable model; NOT an Atto compiler test
+- src/kv_database.atto: sealed actor-owned shard target, WAL and per-generation command admission
+- src/redis_supervision.atto: root/storage/network/maintenance supervisor target (NOT_COMPILED)
+- docs/SUPERVISION_AND_RECOVERY.md: failure policy, epoch fencing and native acceptance gates
+- rust/tests/supervision_contract.rs: Rust-only executable model; NOT an Atto compiler test
 - src/checkpoint.atto: cross-shard durable manifest fence
 - rust/src/lib.rs: Rust reference storage engine
 - rust/src/server.rs: bounded RESP2 TCP handler
