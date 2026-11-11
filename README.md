@@ -64,3 +64,14 @@ crash-recovery tests are tracked in [the benchmark and hardening guide](docs/BEN
 **Security:** The unauthenticated reference only binds numeric loopback IPs.
 No `--allow-remote` bypass is provided. This remains an experimental Redis
 subset, not a verified native Atto server or production-ready network service.
+
+## Native Atto guest vertical slice (still not a Redis server)
+
+`guest/kv_cell.atto` and `guest/fs_roundtrip.atto` have been executed by
+a pinned Java/Truffle compiler snapshot; `guest/llvm_lsn_smoke.atto` has
+been compiled to a native LLVM executable with exit 42. These are focused
+guest milestones (one-key mutable cell, scoped text filesystem, scalar LSN),
+not a working durable Atto RESP listener. See
+[exact guest evidence and compiler limitations](docs/NATIVE_VERTICAL_SLICE.md).
+The Rust-only `verify_guest` gate fails closed when native compilers or
+verified source blobs are missing.
