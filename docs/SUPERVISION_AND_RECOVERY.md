@@ -61,9 +61,11 @@ are rejected by the admission authority, not redirected to dead actors.
    restore **every** shard before the new WAL writer and routing snapshot can
    be published. Corrupt complete WAL frames or unsafe manifest/lease paths
    must fail closed, not be disguised as a healthy restart.
-7. `publish_ready(epoch)` must atomically publish topology + epoch + serving
-   state. An old `ready` completion or child CONTROL notice cannot reopen or
-   fence a newer generation.
+7. `publish_ready(epoch)` on boot and `publish_ready_and_route(epoch)`
+   on recovery must atomically publish topology + epoch + serving state (and
+   swap the network's routing snapshot on recovery). An old `ready`
+   completion or child CONTROL notice cannot reopen or fence a newer
+   generation.
 8. Root and storage supervisors receive child panic/termination on CONTROL.
    A panicking actor cannot catch its own panic and cannot change other
    actors' sealed state directly. `on_throw/on_raise` are not substitutes
@@ -104,11 +106,13 @@ are rejected by the admission authority, not redirected to dead actors.
 - `src/redis_supervision.atto` declares the intended hierarchy. Its
   `Supervisor`, `SupervisorChildren`, `RootRecoveryLane`,
   `StorageAdmission`, `StorageRecovery`, `DatabaseLease` and
-  `ProcessLifecycle` names are **proposed interfaces**. No Atto backend
+  runtime process fail-stop names are **proposed interfaces**. No Atto backend
   currently proves these declarations parse, typecheck or execute.
 - `src/kv_database.atto` has three `StorageAdmission.enter` guards in
-  SET/GET/DELETE and carries `storage_epoch`. This is a **target**,
-  not verified real fencing, cancellation safety or actual lease ownership.
+  SET/GET/DELETE and carries `storage_epoch`; direct shard/WAL entry points
+  also enforce admission plus matching actor/writer generation. The proposed
+  spill path keeps its lease through durable manifest installation. These
+  are all **targets**, not verified fencing or lease ownership.
 - `src/checkpoint.atto` still calls unimplemented durable cut/fence APIs.
   Integrate it with the root authority before claiming crash safety.
 - `rust/tests/supervision_contract.rs` is a small deterministic Rust
