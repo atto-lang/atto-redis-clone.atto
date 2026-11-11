@@ -31,6 +31,13 @@ fn count(v:&[u8])->io::Result<usize>{
     std::str::from_utf8(v).map_err(|_|bad("bad length"))?
         .parse().map_err(|_|bad("length overflow"))
 }
+// Cumulative budget is checked before reading or allocating the next body.
+fn charge_request_bytes(consumed:usize,next:usize)->io::Result<usize>{
+    let amount=consumed.checked_add(next)
+        .ok_or_else(||bad("request length overflow"))?;
+    if amount>MAX_REQUEST_BYTES{return Err(bad("oversized request"));}
+    Ok(amount)
+}
 fn command(r:&mut BufReader<TcpStream>,max_bulk:usize)->io::Result<Option<Vec<Vec<u8>>>>{
     let Some(h)=line(r)? else{return Ok(None)};
     if h.first()!=Some(&b'*'){return Err(bad("expected array"));}
@@ -45,12 +52,11 @@ fn command(r:&mut BufReader<TcpStream>,max_bulk:usize)->io::Result<Option<Vec<Ve
         // Reject before any allocation or read of the declared body.
         if i==0 && size>MAX_COMMAND_BYTES{return Err(bad("command name too long"));}
         if size>max_bulk || size>MAX_BULK_BYTES{return Err(bad("oversized bulk"));}
-        request_bytes=request_bytes.checked_add(b.len())
-            .and_then(|x|x.checked_add(2))
+        let frame_bytes=b.len().checked_add(2)
             .and_then(|x|x.checked_add(size))
             .and_then(|x|x.checked_add(2))
             .ok_or_else(||bad("request length overflow"))?;
-        if request_bytes>MAX_REQUEST_BYTES{return Err(bad("oversized request"));}
+        request_bytes=charge_request_bytes(request_bytes,frame_bytes)?;
         let mut v=vec![0;size];r.read_exact(&mut v)?;
         let mut crlf=[0;2];r.read_exact(&mut crlf)?;
         if crlf!=*b"\r\n"{return Err(bad("bad trailer"));}
@@ -154,9 +160,8 @@ mod protocol_bounds_tests {
 
     #[test]
     fn request_budget_accounts_for_aggregate_bulk_overhead() {
-        assert!(MAX_REQUEST_BYTES > MAX_BULK_BYTES);
-        let consumed=MAX_BULK_BYTES+24usize;
-        let second=MAX_BULK_BYTES+24usize;
-        assert!(consumed.checked_add(second).unwrap() > MAX_REQUEST_BYTES);
+        let consumed=charge_request_bytes(0,MAX_BULK_BYTES+24).unwrap();
+        let overflow=charge_request_bytes(consumed,MAX_BULK_BYTES+24).unwrap_err();
+        assert_eq!(overflow.to_string(),"oversized request");
     }
 }
