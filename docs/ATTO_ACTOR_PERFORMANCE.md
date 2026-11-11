@@ -51,3 +51,30 @@ It prints a ratio only when both endpoints have executed.
    policy separately for each endpoint.
 5. For a native performance comparison, implement Atto TCP plus equivalent WAL,
    fsync, sharding and concurrency. Then benchmark identical settings and workloads.
+
+## Extended verified benchmark — five 1,000-operation trials
+
+The five-trial sample succeeded on the second CI attempt, after a transient
+Maven Central dependency-resolution failure was retried **without changing
+the source**: https://github.com/voxletra/voxletra-e2e/actions/runs/43089527434
+
+- Carrier exact head: `1d40e8c392f30f9faf8c1550d2ce9e9c74640898`
+- GitHub job ID (successful attempt 2): `130763001022`
+- Actual Atto JUnit: 4/4; real Atto actor RESP2 TCP exchange: PASS.
+- Java RESP bridge bounds: 17 checks; process/contract: 29 checks.
+- Rust checked benchmark unit tests: 4/4 PASS.
+- Five trials of 200 warm-up + 1,000 measured operations; all server replies
+  checked against the client-side oracle.
+- Atto actor + JDK21 bridge: **916.6 / 1821.6 / 2160.2 / 2296.3 / 2439.8**
+  ops/sec; **median 2160.2 ops/sec**.
+- Rust fsync-always native server: **5326.0 / 5148.6 / 4944.8 / 5042.7 /
+  3260.4** ops/sec; **median 5042.7 ops/sec**.
+- Atto trial 3 p50/p95/p99: **404 / 595 / 2091 microseconds**.
+- Atto trial 5 p50/p95/p99: **377 / 455 / 1625 microseconds**.
+- Median throughput ratio **0.4284**; **not comparable durability**, and Atto
+  performance was still increasing over the trials.
+
+The measured Atto process was a real executed actor guest, not a Java/Rust
+KV substitute, although the TCP transport and IPC layer are hosted in JDK21.
+A direct compiled Atto native networking/storage performance comparison has
+not been executed.
