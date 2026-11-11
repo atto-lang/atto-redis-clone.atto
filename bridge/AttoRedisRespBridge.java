@@ -211,7 +211,18 @@ public final class AttoRedisRespBridge {
             if (bulkHeader == null || bulkHeader.length < 2 || bulkHeader[0] != '$') {
                 throw new ClientFault("expected bulk string");
             }
-            int size = decimal(bulkHeader, 1, i == 0 ? 16 : MAX_VALUE);
+            // Validate storage keys before allocating/reading their bulk bodies.
+            // The opcode was bounded to 16 bytes by the preceding loop iteration.
+            // PING/ECHO payloads retain the separate 1 MiB RESP bulk limit.
+            int limit = MAX_VALUE;
+            if (i == 1) {
+                String verb = new String(parts.get(0), StandardCharsets.US_ASCII)
+                        .toUpperCase(Locale.ROOT);
+                if (verb.equals("SET") || verb.equals("GET") || verb.equals("DEL")) {
+                    limit = MAX_KEY;
+                }
+            }
+            int size = decimal(bulkHeader, 1, i == 0 ? 16 : limit);
             if (i == 0 && size == 0) throw new ClientFault("empty command name");
             cumulative += size;
             if (cumulative > MAX_FRAME) throw new ClientFault("request frame exceeds cap");
