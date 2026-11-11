@@ -254,7 +254,12 @@ impl Manifest {
 fn lock_store(dir: &Path) -> io::Result<File> {
     use std::os::fd::AsRawFd;
     unsafe extern "C" { fn flock(fd: i32, operation: i32) -> i32; }
-    let file = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(dir.join("WAL.lock"))?;
+    let lock_path = dir.join("WAL.lock");
+    // Do not follow a preexisting symlink to arbitrary writable files.
+    if lock_path.symlink_metadata().is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(invalid("symlink WAL lock"));
+    }
+    let file = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(lock_path)?;
     if unsafe { flock(file.as_raw_fd(), 2 | 4) } != 0 { return Err(blocked("store already opened")); }
     Ok(file)
 }
