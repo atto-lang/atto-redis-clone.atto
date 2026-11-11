@@ -78,3 +78,85 @@ The measured Atto process was a real executed actor guest, not a Java/Rust
 KV substitute, although the TCP transport and IPC layer are hosted in JDK21.
 A direct compiled Atto native networking/storage performance comparison has
 not been executed.
+
+
+## Hardened checked benchmark and stable-keyspace trial reset — 2026-11-11
+
+Source test PR: https://github.com/ores-truffle-oreslang/atto-redis-clone.atto/pull/10
+Exact Rust benchmark blob: `c1cde39dc6518e0a9f5def9acc48ffe9bc61ea52`
+
+Seven new binary/frame/oracle/median tests and three additional trial-reset/quota tests
+bring the checked Rust workload client from 4 to **14 passing unit tests**.
+Even-count medians now use the mean of the two middle ordered values, and reject
+nonfinite and nonpositive throughput samples.
+
+The initial expanded 10-trial workload (https://github.com/voxletra/voxletra-e2e/actions/runs/43093181241)
+**FAILED** in Atto trial 6 after five successful Atto measured trials. Unlike
+the short baseline, this workload created a new trial key namespace on an
+unchanged persistent Atto Map without clearing old keys. The runtime's
+`OresKeyedMap.MAX_ENTRIES` is 4,096, and the unbounded retained
+test namespaces can exceed that limit. The runner's truncated actor stderr
+did not preserve the original exception's root message, so classify that
+failure's cause as *suspected quota accumulation*, not confirmed.
+
+The benchmark was corrected to issue **correctness-checked DEL commands
+for every remaining test key after stopping each trial's timer**.
+Every missing/inaccurate/malformed cleanup acknowledgement now fails the run,
+rather than being ignored. Both endpoints receive identical cleanup requests.
+A regression test explicitly demonstrates that retaining ten independent
+trial namespaces without resetting them would exceed 4,096 keys.
+
+**Successful exact-source private CI:** https://github.com/voxletra/voxletra-e2e/actions/runs/43094013417
+Carrier SHA `e20e5de051b45d9ee42e6c7e8de440cead9a5f1d`,
+job `130778080697`. Exact compiler+guest and Rust benchmark
+Git blobs verified; no cross-org token checkout.
+
+- Actual Atto JUnit **4/4** passed, zero skipped/failed; actual actor TCP RESP2
+  exchange passed with binary key/value and absent versus empty semantics.
+- Java RESP admission bounds **17 passed**; process protocol **29 passed**.
+- Rust checked benchmark **14/14 passed**, no failures.
+- **Ten trials per endpoint** of 1,000 warm-up + 2,000 measured + **758
+  verified post-trial key deletions** each, for 37,580 correctness-checked
+  operations per server (20,000 measured).
+- Atto actor + JDK21 bridge trial rates: 1802.5, 2441.8, 3084.9, 4000.2,
+  4282.9, 4504.9, 4515.0, 4612.0, 4564.2, 4583.7 ops/sec.
+  **Median 4393.9 ops/sec**, trial 10 p50/p95/p99 210/244/269 microseconds.
+- Rust native fsync-always trial rates: 5250.3, 5352.4, 7278.9, 7209.3,
+  6906.1, 6902.4, 7128.3, 7014.0, 7157.9, 7378.1 ops/sec.
+  **Median 7071.1 ops/sec**.
+- Diagnostic median ratio **0.6214 (62.14%)**.
+  This is NOT an Atto-vs-Rust native parity ratio: the Atto server lacks WAL
+  durability and uses JDK-hosted TCP+hex IPC while Rust fsyncs every write.
+  The test only verifies the specific interpreter/actor/bridge configuration.
+
+The current Atto process performs blocking stdio line reads and its JDK transport
+uses blocking sockets; this does **not** satisfy the eventual
+Atto-native nonblocking I/O / NIO design requirement. Native Atto async TCP,
+durable WAL/SST, sealed actor state and full cross-backend proof remain blockers.
+
+
+## Independent second run with expanded compiler-backed Atto actor tests
+
+[Private exact-blob run #43094341676](https://github.com/voxletra/voxletra-e2e/actions/runs/43094341676),
+job `130779189479`, carrier commit
+`d8f72801e27e886863e648b4e246e1149b99cef4`:
+the **same immutable benchmark blob** `c1cde39dc6518e0a9f5def9acc48ffe9bc61ea52`
+and the **same Atto Redis actor source** ran again with an expanded Java
+JUnit class (`94f94b943010b180fe6664be1f6e78cdd3aae2b4`,
+[compiler test PR #2895](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2895)).
+
+- **8/8 real Atto compiler/Truffle JUnit tests passed**, including actor mailbox
+  overwrite/duplicate-delete, binary/empty value, 48-cycle command ordering
+  and fresh-context Map isolation. Zero failures/errors/skips.
+- **14/14 Rust benchmark tests passed** and 10/10 real actor+TCP RESP2
+  workload trials passed, with 758 verified post-trial deletions each.
+- Atto actor + JDK21 bridge **median 6,494.7 ops/sec**. Rust fsync-always
+  reference **median 6,367.3 ops/sec**. Diagnostic ratio **1.0200**.
+- The variation from the previous independent same-workload run (Atto 4,393.9
+  vs Rust 7,071.1) is substantial. The two configurations remain structurally
+  incomparable and the results are **not** statistical evidence that native
+  Atto is faster than Rust.
+
+Both runs prove **actual Atto guest execution** behind the JDK bridge, not a
+Rust or Java KV surrogate. Neither run proves Atto-native nonblocking TCP,
+Atto durability, or five-backend performance parity.

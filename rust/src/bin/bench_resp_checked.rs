@@ -48,6 +48,21 @@ fn op(i:usize, trial:usize, state:&mut HashMap<Vec<u8>,Vec<u8>>)->(Vec<u8>,Reply
               (cmd(&[b"DEL",&key]),Reply::Int(if existed{1}else{0}))}
     }
 }
+// Each trial uses unique keys, but the server remains live across trials.
+// Verified cleanup outside the timed interval keeps this benchmark from
+// measuring cumulative Map quota exhaustion instead of steady-state KV speed.
+fn reset_trial<R:BufRead,W:Write>(
+    reader:&mut R, writer:&mut W, state:&HashMap<Vec<u8>,Vec<u8>>
+)->io::Result<usize>{
+    for key in state.keys(){
+        writer.write_all(&cmd(&[b"DEL".as_slice(),key.as_slice()]))?;
+        let actual=recv(reader)?;
+        if actual!=Reply::Int(1){
+            return Err(bad("trial cleanup did not delete a present key"));
+        }
+    }
+    Ok(state.len())
+}
 fn run(addr:&str,label:&str,trial:usize,n:usize,warmup:usize)->io::Result<f64>{
     let socket=TcpStream::connect(addr)?;socket.set_nodelay(true)?;
     socket.set_read_timeout(Some(Duration::from_secs(20)))?;
@@ -65,15 +80,27 @@ fn run(addr:&str,label:&str,trial:usize,n:usize,warmup:usize)->io::Result<f64>{
         if i>=warmup{latency.push(before.elapsed().as_micros());}
     }
     let secs=started.expect("requests positive").elapsed().as_secs_f64();
+    let cleanup_count=reset_trial(&mut reader,&mut writer,&state)?;
+    println!("BENCH_TRIAL_RESET label={label} trial={} verified_deleted={cleanup_count} correctness=PASS",trial+1);
     latency.sort_unstable();let p=|v:usize|latency[(latency.len()-1)*v/100];
     let rate=n as f64/secs;
     println!("BENCH label={label} trial={} checks={} measured={} ops_per_sec={rate:.1} p50_us={} p95_us={} p99_us={}",
-        trial+1,n+warmup,n,p(50),p(95),p(99)); Ok(rate)
+        trial+1,n+warmup+cleanup_count,n,p(50),p(95),p(99)); Ok(rate)
+}
+fn median(mut rates:Vec<f64>)->io::Result<f64>{
+    if rates.is_empty() || rates.iter().any(|r| !r.is_finite() || *r<=0.0){
+        return Err(bad("invalid throughput samples"));
+    }
+    rates.sort_by(f64::total_cmp);
+    let middle=rates.len()/2;
+    Ok(if rates.len()%2==0 {
+        rates[middle-1]/2.0 + rates[middle]/2.0
+    } else {rates[middle]})
 }
 fn series(addr:&str,label:&str,trials:usize,n:usize,w:usize)->io::Result<f64>{
     let mut rates=Vec::new();
     for trial in 0..trials{rates.push(run(addr,label,trial,n,w)?);}
-    rates.sort_by(f64::total_cmp);let med=rates[trials/2];
+    let med=median(rates)?;
     println!("BENCH_MEDIAN label={label} trials={trials} ops_per_sec={med:.1} correctness=PASS");
     Ok(med)
 }
@@ -124,6 +151,111 @@ mod tests{
         assert_eq!(op(9,0,&mut h).1,Reply::Int(1));
         assert_eq!(op(9,0,&mut h).1,Reply::Int(0));
         assert_eq!(op(5,0,&mut h).1,Reply::Bulk(None));
+    }
+    #[test] fn accepts_maximum_sized_bulk_with_binary_payload(){
+        let payload=vec![0xffu8;1048576];
+        let mut wire=b"$1048576\r\n".to_vec();
+        wire.extend_from_slice(&payload);
+        wire.extend_from_slice(b"\r\n");
+        assert_eq!(recv(&mut Cursor::new(wire)).unwrap(),Reply::Bulk(Some(payload)));
+    }
+    #[test] fn rejects_truncated_bulk_and_corrupted_trailer(){
+        for broken in [
+            b"$4\r\n".as_slice(),
+            b"$4\r\nabcd".as_slice(),
+            b"$4\r\nabcd\r".as_slice(),
+            b"$4\r\nabcd\n\n".as_slice(),
+            b"$4\r\nabcd\rX".as_slice(),
+            b"$-2\r\n".as_slice(),
+            b"$9223372036854775808\r\n".as_slice(),
+            b"$0\r\n".as_slice(),
+            b"$0\r\n\rX".as_slice()
+        ] {
+            assert!(recv(&mut Cursor::new(broken)).is_err(),"{broken:?}");
+        }
+    }
+    #[test] fn header_is_strictly_bounded(){
+        let maximum=format!("+{}\r\n","a".repeat(125));
+        assert_eq!(recv(&mut Cursor::new(maximum.as_bytes())).unwrap(),
+                   Reply::Simple(vec![b'a';125]));
+        for broken in [
+            format!("+{}\r\n","a".repeat(126)),
+            "+OK\n".to_string(),
+            "+OK\r".to_string(),
+            "$\r\n".to_string(),
+            "*1\r\n".to_string(),
+        ] {
+            assert!(recv(&mut Cursor::new(broken.as_bytes())).is_err(),"{broken:?}");
+        }
+    }
+    #[test] fn all_binary_octets_round_trip_without_text_decoding(){
+        let payload:Vec<u8>=(0..=255).map(|v|v as u8).collect();
+        let mut wire=b"$256\r\n".to_vec();
+        wire.extend_from_slice(&payload);
+        wire.extend_from_slice(b"\r\n");
+        assert_eq!(recv(&mut Cursor::new(wire)).unwrap(),Reply::Bulk(Some(payload)));
+    }
+    #[test] fn pipelined_responses_consume_exactly_one_frame(){
+        let mut reader=Cursor::new(b"+OK\r\n$-1\r\n:0\r\n$0\r\n\r\n".as_slice());
+        assert_eq!(recv(&mut reader).unwrap(),Reply::Simple(b"OK".to_vec()));
+        assert_eq!(recv(&mut reader).unwrap(),Reply::Bulk(None));
+        assert_eq!(recv(&mut reader).unwrap(),Reply::Int(0));
+        assert_eq!(recv(&mut reader).unwrap(),Reply::Bulk(Some(vec![])));
+        assert!(recv(&mut reader).is_err());
+    }
+    #[test] fn workload_mix_key_bound_and_trial_isolation(){
+        let mut first=HashMap::new();
+        let mut second=HashMap::new();
+        let mut counts=[0usize;3];
+        for i in 0..10000{
+            let (frame,_reply)=op(i,4,&mut first);
+            assert!(frame.starts_with(b"*2\r\n") || frame.starts_with(b"*3\r\n"));
+            assert!(first.len()<=1024);
+            counts[if i%10<5 {0} else if i%10<9 {1} else {2}]+=1;
+            op(i,5,&mut second);
+        }
+        assert_eq!(counts,[5000,4000,1000]);
+        assert!(first.keys().all(|key|key.starts_with(b"bench-t4-k")));
+        assert!(second.keys().all(|key|key.starts_with(b"bench-t5-k")));
+        assert!(first.keys().all(|key|!second.contains_key(key)));
+        assert!(first.values().all(|value|value.len()==64));
+    }
+    #[test] fn cleanup_requires_one_verified_delete_per_live_key(){
+        let mut state=HashMap::new();
+        state.insert(b"one".to_vec(),vec![0]);
+        state.insert(b"two".to_vec(),vec![1]);
+        let mut written=Vec::new();
+        let mut responses=Cursor::new(b":1\r\n:1\r\n".as_slice());
+        assert_eq!(reset_trial(&mut responses,&mut written,&state).unwrap(),2);
+        assert_eq!(written.windows(4).filter(|w|*w==b"DEL\r").count(),2);
+    }
+    #[test] fn cleanup_rejects_missing_incorrect_and_truncated_ack(){
+        let mut state=HashMap::new();
+        state.insert(b"one".to_vec(),vec![0]);
+        for bad_reply in [b":0\r\n".as_slice(),b"+OK\r\n".as_slice(),b":1\r".as_slice()]{
+            let mut written=Vec::new();
+            let mut response=Cursor::new(bad_reply);
+            assert!(reset_trial(&mut response,&mut written,&state).is_err());
+        }
+    }
+    #[test] fn unique_trial_namespaces_would_exceed_bounded_guest_map_without_reset(){
+        let mut retained=std::collections::HashSet::new();
+        for trial in 0..10{
+            let mut state=HashMap::new();
+            for i in 0..3000{op(i,trial,&mut state);}
+            assert!(state.len()<=1024);
+            retained.extend(state.into_keys());
+        }
+        // Guest typed Map has a 4,096-key cap: failing to clear persistent
+        // test keys is a benchmark bug, not evidence of low Atto throughput.
+        assert!(retained.len()>4096);
+    }
+    #[test] fn median_handles_odd_even_and_rejects_invalid_samples(){
+        assert_eq!(median(vec![4.0,1.0,9.0]).unwrap(),4.0);
+        assert_eq!(median(vec![9.0,1.0,3.0,7.0]).unwrap(),5.0);
+        for invalid in [vec![],vec![0.0],vec![-1.0],vec![f64::NAN],vec![f64::INFINITY]] {
+            assert!(median(invalid).is_err());
+        }
     }
     #[test] fn binary_frame(){assert_eq!(cmd(&[b"SET",b"\0",b"\xff"]),
         b"*3\r\n$3\r\nSET\r\n$1\r\n\0\r\n$1\r\n\xff\r\n");}
