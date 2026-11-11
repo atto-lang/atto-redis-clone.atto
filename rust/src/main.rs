@@ -8,7 +8,9 @@ fn main() -> io::Result<()> {
     let mut port: u16 = 6379;
     let mut cfg = Config::default();
     let mut checkpoint = 60u64;
+    let mut allow_remote = false;
     while let Some(flag) = argv.next() {
+        if flag == "--allow-remote" { allow_remote = true; continue; }
         let v = argv.next().ok_or_else(|| bad("option requires value"))?;
         match flag.as_str() {
             "--data-dir" => path = v,
@@ -28,11 +30,16 @@ fn main() -> io::Result<()> {
         }
     }
     if checkpoint == 0 { return Err(bad("checkpoint interval must be positive")); }
+    let addr: std::net::SocketAddr = format!("{host}:{port}").parse()
+        .map_err(|_| bad("host must be a numeric IP address"))?;
+    if !addr.ip().is_loopback() && !allow_remote {
+        return Err(bad("non-loopback bind requires --allow-remote; this server has no auth or TLS"));
+    }
     let engine = Arc::new(Engine::open(path, cfg)?);
     let keeper = Arc::clone(&engine);
     thread::spawn(move || loop {
         thread::sleep(Duration::from_secs(checkpoint));
         if let Err(e) = keeper.checkpoint() { eprintln!("checkpoint error: {e}"); }
     });
-    server::serve(&format!("{host}:{port}"), engine)
+    server::serve(&addr.to_string(), engine)
 }

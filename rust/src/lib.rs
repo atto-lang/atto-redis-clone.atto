@@ -152,7 +152,7 @@ impl Config {
     fn validate(&self) -> io::Result<()> {
         if !(1..=256).contains(&self.shards) || self.spill_bytes == 0 || self.pending_limit == 0
            || self.max_key_bytes == 0 || self.max_value_bytes > u32::MAX as usize
-           || self.max_key_bytes > u32::MAX as usize
+           || self.max_key_bytes > 1024 * 1024 || self.max_value_bytes > 64 * 1024 * 1024
            || RECORD.checked_add(self.max_key_bytes).and_then(|v|v.checked_add(self.max_value_bytes)).is_none() {
             return Err(invalid("invalid configuration"));
         }
@@ -161,7 +161,7 @@ impl Config {
 }
 fn segment_filename(idx: usize, name: &str) -> bool {
     let prefix = format!("shard-{idx:03}-");
-    name.starts_with(&prefix) && name.ends_with(".sst") &&
+    name.is_ascii() && name.starts_with(&prefix) && name.ends_with(".sst") &&
     name.len() == prefix.len() + 32 + 4 &&
     name[prefix.len()..prefix.len()+32].bytes().all(|c|c.is_ascii_hexdigit())
 }
@@ -254,7 +254,11 @@ impl Manifest {
 fn lock_store(dir: &Path) -> io::Result<File> {
     use std::os::fd::AsRawFd;
     unsafe extern "C" { fn flock(fd: i32, operation: i32) -> i32; }
-    let file = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(dir.join("WAL.lock"))?;
+    let lock_path = dir.join("WAL.lock");
+    if lock_path.exists() && lock_path.symlink_metadata()?.file_type().is_symlink() {
+        return Err(invalid("symlink WAL lock"));
+    }
+    let file = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(lock_path)?;
     if unsafe { flock(file.as_raw_fd(), 2 | 4) } != 0 { return Err(blocked("store already opened")); }
     Ok(file)
 }
@@ -287,6 +291,14 @@ impl Wal {
         })();
         if action.is_err() { self.poisoned = true; }
         action
+    }
+    fn sync_if_due(&mut self) -> io::Result<()> {
+        if self.poisoned { return Err(invalid("WAL poisoned")); }
+        if self.every_second && self.last_sync.elapsed() >= Duration::from_secs(1) {
+            if let Err(e) = self.f.sync_data() { self.poisoned = true; return Err(e); }
+            self.last_sync = Instant::now();
+        }
+        Ok(())
     }
     fn prune(&mut self, through: u64, cfg: &Config) -> io::Result<()> {
         if self.poisoned { return Err(invalid("WAL poisoned")); }
@@ -374,7 +386,26 @@ fn store_failure(shared: &Shared, error: io::Error) {
     shared.ready.notify_all();
 }
 fn flush_worker(shared: Arc<Shared>, rx: mpsc::Receiver<Job>) {
-    while let Ok(job) = rx.recv() {
+    loop {
+        let job = match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(job) => job,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if shared.cfg.fsync_every_second && shared.failed.lock().unwrap().is_none() {
+                    let sync_result = { shared.wal.lock().unwrap().sync_if_due() };
+            if let Err(e) = sync_result {
+                        store_failure(&shared, e);
+                    }
+                }
+                continue;
+            }
+        };
+        if shared.cfg.fsync_every_second && shared.failed.lock().unwrap().is_none() {
+            let sync_result = { shared.wal.lock().unwrap().sync_if_due() };
+            if let Err(e) = sync_result {
+                store_failure(&shared, e);
+            }
+        }
         match job {
             Job::Exit => break,
             Job::Barrier(reply) => { let _ = reply.send(()); }

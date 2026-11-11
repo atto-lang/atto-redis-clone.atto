@@ -8,7 +8,10 @@ use std::thread;
 use std::time::Duration;
 const MAX_ARGS: usize=16;
 const MAX_LINE: usize=128;
-const MAX_CONNECTIONS: usize=64;
+const MAX_CONNECTIONS: usize=32;
+// Limits bound parser allocations even when the storage engine allows larger values.
+const MAX_NETWORK_BULK: usize=4*1024*1024;
+const MAX_REQUEST_BYTES: usize=8*1024*1024;
 fn bad(s:&str)->io::Error { io::Error::new(io::ErrorKind::InvalidData,s) }
 fn line(r:&mut BufReader<TcpStream>)->io::Result<Option<Vec<u8>>> {
     let mut v=Vec::new();
@@ -28,17 +31,23 @@ fn count(v:&[u8])->io::Result<usize>{
     std::str::from_utf8(v).map_err(|_|bad("bad length"))?
         .parse().map_err(|_|bad("length overflow"))
 }
-fn command(r:&mut BufReader<TcpStream>,max_bulk:usize)->io::Result<Option<Vec<Vec<u8>>>>{
+fn command(r:&mut BufReader<TcpStream>,max_key:usize,max_value:usize)->io::Result<Option<Vec<Vec<u8>>>>{
     let Some(h)=line(r)? else{return Ok(None)};
     if h.first()!=Some(&b'*'){return Err(bad("expected array"));}
     let n=count(&h[1..])?;
     if !(1..=MAX_ARGS).contains(&n){return Err(bad("argument count"));}
-    let mut args=Vec::with_capacity(n);
-    for _ in 0..n{
+    let mut args:Vec<Vec<u8>>=Vec::with_capacity(n);
+    let mut total=0usize;
+    for index in 0..n{
         let Some(b)=line(r)? else{return Err(bad("truncated bulk"))};
         if b.first()!=Some(&b'$'){return Err(bad("expected bulk"));}
         let size=count(&b[1..])?;
-        if size>max_bulk{return Err(bad("oversized bulk"));}
+        let cap=if index==0 {64} else if index==2 && args[0].eq_ignore_ascii_case(b"SET")
+            || index==1 && (args[0].eq_ignore_ascii_case(b"PING") || args[0].eq_ignore_ascii_case(b"ECHO")) {
+            max_value.min(MAX_NETWORK_BULK)
+        } else {max_key.min(MAX_NETWORK_BULK)};
+        total=total.checked_add(size).ok_or_else(||bad("request length overflow"))?;
+        if size>cap || total>MAX_REQUEST_BYTES{return Err(bad("oversized request"));}
         let mut v=vec![0;size];r.read_exact(&mut v)?;
         let mut crlf=[0;2];r.read_exact(&mut crlf)?;
         if crlf!=*b"\r\n"{return Err(bad("bad trailer"));}
@@ -57,9 +66,9 @@ pub fn serve_connection(stream:TcpStream,engine:Arc<Engine>)->io::Result<()>{
     let mut reader=BufReader::new(stream.try_clone()?);
     let mut writer=stream;
     let cfg=engine.config();
-    let max=cfg.max_key_bytes.max(cfg.max_value_bytes);
+    // Enforce argument-position-specific limits before allocating a bulk body.
     loop{
-        let args=match command(&mut reader,max){
+        let args=match command(&mut reader,cfg.max_key_bytes,cfg.max_value_bytes){
             Ok(Some(x))=>x,Ok(None)=>return Ok(()),
             Err(_)=>{writer.write_all(b"-ERR invalid RESP request\r\n")?;return Ok(());}
         };

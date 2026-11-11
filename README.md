@@ -29,4 +29,13 @@ The driver performs 50% SET, 40% GET, 10% DEL (fixed 64-byte values, 1,024 key w
 - rust/tests/storage.rs: executable Rust correctness and protocol tests
 - docs/ACTOR_RUNTIME_GATES.md: native execution blockers and acceptance tests
 
+
+## Audit hardening and repeatable measurements
+
+- Rust RESP2 parsing caps concurrent clients at 32, each request at 8 MiB and each bulk at 4 MiB; key/value limits are checked before allocation. Non-loopback listening is rejected unless the operator explicitly passes `--allow-remote` (unsafe without authentication and TLS).
+- Rust WAL `everysec` mode is now independently synchronized by the background worker even after writes stop; `always` still synchronizes each acknowledged write. Both are different durability contracts.
+- Rust recovery checks include complete corrupt WAL frames (fail closed), torn final WAL frames (truncate), exclusive database leases, concurrent writes, segment compaction, and real RESP2 binary frames.
+- Atto source is still a non-compiled contract. GET participates in the serial admission lane, frozen generations stay retained until their durable segment is installed, and active-map accounting is adjusted after deletion and rotation.
+- Run the identical `bench_resp` binary against both live native endpoints only. Until an Atto guest binary exists, Atto throughput and speed ratios remain **NOT_EXECUTED**. See [hardening and benchmark gates](docs/BENCHMARK_AND_HARDENING.md).
+
 Do not expose the reference server to untrusted networks or claim production Redis correctness.
