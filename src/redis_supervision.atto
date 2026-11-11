@@ -15,12 +15,16 @@ define actor RedisRootSupervisor extends Supervisor as
   }
 
   async boot(DatabaseConfig cfg) -> Result<void, StorageError> ::
+    // Serialize boot and any recovery against concurrent CONTROL notices.
+    val transition = await RootRecoveryLane.acquire(self)?;
+    defer { transition.release(); }
     // The process must first hold an EXCLUSIVE on-disk database lease.
     // Failure of the root/process is fail-stop; external service management
     // may restart it only after all previous writers are terminated/fenced.
     await DatabaseLease.require_exclusive(cfg.data_dir)?;
     val epoch = await StorageAdmission.begin_fenced_epoch()?;
     val storage = await spawn StorageSupervisor();
+    await SupervisorChildren.monitor(storage)?;
     await storage.restore_durable_generation(epoch, cfg)?;
     // Publish WAL + every shard + router references in ONE atomic operation.
     // The TCP listener is not started before storage is ready.
@@ -30,13 +34,17 @@ define actor RedisRootSupervisor extends Supervisor as
       s.phase = #ready;
     });
     val network = await spawn NetworkSupervisor();
+    await SupervisorChildren.monitor(network)?;
     await network.start_for_epoch(epoch)?;
     val maintenance = await spawn MaintenanceSupervisor();
+    await SupervisorChildren.monitor(maintenance)?;
     await maintenance.start_for_epoch(epoch)?;
     return Ok();
   end
 
   async on_storage_failure(StorageFailure notice) -> Result<void, StorageError> ::
+    val transition = await RootRecoveryLane.acquire(self)?;
+    defer { transition.release(); }
     // This callback is on the PARENT, not the failed actor. A panic must
     // arrive through the supervisor CONTROL path; the child cannot catch it.
     // Fencing is atomic and closes admission BEFORE waiting for old tasks.
@@ -45,6 +53,7 @@ define actor RedisRootSupervisor extends Supervisor as
     if notice.epoch != current then
       return Ok();
     fi
+    self.handle_state(critical-write |s| -> { s.phase = #fenced; });
     await StorageAdmission.fence_and_drain(current)?;
     // The old WAL and all shards are retired as ONE storage failure domain.
     // Failed writes may be acknowledged ONLY according to their fsync policy.
@@ -55,6 +64,7 @@ define actor RedisRootSupervisor extends Supervisor as
     await SupervisorPolicy.require_recoverable_and_budget(notice)?;
     val epoch = await StorageAdmission.begin_fenced_epoch()?;
     val child = await spawn StorageSupervisor();
+    await SupervisorChildren.monitor(child)?;
     await child.restore_durable_generation(epoch, notice.config)?;
     await StorageAdmission.publish_ready(epoch)?;
     self.handle_state(critical-write |s| -> {
@@ -65,12 +75,9 @@ define actor RedisRootSupervisor extends Supervisor as
     return Ok();
   end
 
-  async on_root_failure(RootFailure failure) -> Result<void, StorageError> ::
-    // A root supervisor cannot supervise itself. Fail the process closed;
-    // never fabricate a surviving in-process supervisor or reuse its lease.
-    await ProcessLifecycle.fail_stop(failure)?;
-    return Ok();
-  end
+  // There is deliberately NO self on_panic()/on_root_failure() recovery.
+  // If this root fails, the runtime/process manager must fail-stop and
+  // release the exclusive store lease only after every writer is gone.
 end
 
 define actor StorageSupervisor extends Supervisor as
