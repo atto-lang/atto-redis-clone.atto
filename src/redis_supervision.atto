@@ -1,0 +1,111 @@
+// Atto Redis hierarchical supervision contract.
+// NATIVE_COMPILE=NOT_EXECUTED. Supervisor/StorageAdmission/StorageRecovery APIs
+// below are TARGET interfaces, not verified Atto stdlib or compiler features.
+// Never cite this file as an executable Atto Redis recovery implementation.
+//
+// No extra actor keyword: supervisors are actors with a typed base.
+// StorageEpochAuthority is owned outside the restartable storage subtree.
+// Runtime admission guards MUST be cancellation-safe and live until every
+// in-flight WAL append/apply has completed, including suspended async calls.
+
+define actor RedisRootSupervisor extends Supervisor as
+  state {
+    let Symbol phase: #starting;
+    let u64 active_epoch: 0;
+  }
+
+  async boot(DatabaseConfig cfg) -> Result<void, StorageError> ::
+    // The process must first hold an EXCLUSIVE on-disk database lease.
+    // Failure of the root/process is fail-stop; external service management
+    // may restart it only after all previous writers are terminated/fenced.
+    await DatabaseLease.require_exclusive(cfg.data_dir)?;
+    val epoch = await StorageAdmission.begin_fenced_epoch()?;
+    val storage = await spawn StorageSupervisor();
+    await storage.restore_durable_generation(epoch, cfg)?;
+    // Publish WAL + every shard + router references in ONE atomic operation.
+    // The TCP listener is not started before storage is ready.
+    await StorageAdmission.publish_ready(epoch)?;
+    self.handle_state(critical-write |s| -> {
+      s.active_epoch = epoch;
+      s.phase = #ready;
+    });
+    val network = await spawn NetworkSupervisor();
+    await network.start_for_epoch(epoch)?;
+    val maintenance = await spawn MaintenanceSupervisor();
+    await maintenance.start_for_epoch(epoch)?;
+    return Ok();
+  end
+
+  async on_storage_failure(StorageFailure notice) -> Result<void, StorageError> ::
+    // This callback is on the PARENT, not the failed actor. A panic must
+    // arrive through the supervisor CONTROL path; the child cannot catch it.
+    // Fencing is atomic and closes admission BEFORE waiting for old tasks.
+    // Stale notices from retired generations must never fence the new one.
+    val current = self.handle_state(critical-read |s| -> { return s.active_epoch; });
+    if notice.epoch != current then
+      return Ok();
+    fi
+    await StorageAdmission.fence_and_drain(current)?;
+    // The old WAL and all shards are retired as ONE storage failure domain.
+    // Failed writes may be acknowledged ONLY according to their fsync policy.
+    await StorageChildren.retire_generation(current)?;
+    // Bounded restart budget + exponential backoff live in Supervisor.
+    // CRC, manifest, lease and fsync integrity errors are FATAL and leave
+    // storage fenced for operator intervention, not an auto-restart loop.
+    await SupervisorPolicy.require_recoverable_and_budget(notice)?;
+    val epoch = await StorageAdmission.begin_fenced_epoch()?;
+    val child = await spawn StorageSupervisor();
+    await child.restore_durable_generation(epoch, notice.config)?;
+    await StorageAdmission.publish_ready(epoch)?;
+    self.handle_state(critical-write |s| -> {
+      s.active_epoch = epoch;
+      s.phase = #ready;
+    });
+    await NetworkRouting.publish_new_epoch_only(epoch)?;
+    return Ok();
+  end
+
+  async on_root_failure(RootFailure failure) -> Result<void, StorageError> ::
+    // A root supervisor cannot supervise itself. Fail the process closed;
+    // never fabricate a surviving in-process supervisor or reuse its lease.
+    await ProcessLifecycle.fail_stop(failure)?;
+    return Ok();
+  end
+end
+
+define actor StorageSupervisor extends Supervisor as
+  async restore_durable_generation(
+    u64 epoch, DatabaseConfig cfg
+  ) -> Result<void, StorageError> ::
+    await StorageAdmission.require_fenced(epoch)?;
+    // Validate manifest/CRC, replay WAL, reconcile monotonic LSN,
+    // reconstruct tombstones and immutable generations BEFORE spawning
+    // request-serving shard actors. No child may emit a ready signal early.
+    val recovered = await StorageRecovery.load_and_verify(cfg)?;
+    val wal = await spawn WalWriter();
+    val shards = await StorageRecovery.spawn_restored_shards(recovered)?;
+    await StorageAdmission.install_fenced_topology(epoch, wal, rt take shards)?;
+    return Ok();
+  end
+end
+
+define actor NetworkSupervisor extends Supervisor as
+  async start_for_epoch(u64 epoch) -> Result<void, StorageError> ::
+    await StorageAdmission.require_ready(epoch)?;
+    // Clients receive a generation-bound KvDatabase routing snapshot.
+    // A restart publishes NEW handles; old handles must fail admission.
+    await RedisListener.start_with_epoch(epoch)?;
+    return Ok();
+  end
+end
+
+define actor MaintenanceSupervisor extends Supervisor as
+  async start_for_epoch(u64 epoch) -> Result<void, StorageError> ::
+    await StorageAdmission.require_ready(epoch)?;
+    // Spill, checkpoint and compaction are supervised and fenced. A global
+    // checkpoint must drain whole commands and never prune WAL past its
+    // globally durable manifest fence.
+    await MaintenanceJobs.start_checkpoint_and_compaction(epoch)?;
+    return Ok();
+  end
+end
