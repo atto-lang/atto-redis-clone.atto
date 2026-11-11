@@ -66,12 +66,13 @@ define actor RedisRootSupervisor extends Supervisor as
     val child = await spawn StorageSupervisor();
     await SupervisorChildren.monitor(child)?;
     await child.restore_durable_generation(epoch, notice.config)?;
-    await StorageAdmission.publish_ready(epoch)?;
+    // This one runtime transaction swaps the epoch, WAL/shards, routing
+    // snapshot AND ready bit. Never publish ready and routing separately.
+    await StorageAdmission.publish_ready_and_route(epoch)?;
     self.handle_state(critical-write |s| -> {
       s.active_epoch = epoch;
       s.phase = #ready;
     });
-    await NetworkRouting.publish_new_epoch_only(epoch)?;
     return Ok();
   end
 
