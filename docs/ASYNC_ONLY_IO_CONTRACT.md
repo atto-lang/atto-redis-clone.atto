@@ -104,13 +104,44 @@ No synchronous socket, stdin pipes, or blocking `Future.get` on actor carriers.
 - The stronger result is a bottleneck finding: the guest's per-byte RESP2 state machine and boxed `List<int>` are expensive under JDK21's reported interpreter fallback. Tuning the Map alone will not close the gap.
 
 The optional `guest/redis_actor_nio_fast.atto` takes a different,
-explicitly documented architecture: NIO2's bounded incremental native codec
-produces hex strings, while the Atto actor continues to own the sole Map and
-processes each command in **one typed actor mail**. There is no Java-side
-KV substitute or blocking I/O on this server route. That is a **host-framed
-transport optimization**, not an Atto-written RESP2 parser or zero-copy
-Bytes design. Treat its binary/stream conformance and performance as pending
-until an exact-blob guest execution gate passes.
+**executed and verified** architecture: NIO2's bounded incremental frame codec
+produces hex strings, while the Atto actor owns the sole `Map<string,string>`
+and processes each command in one typed incoming actor message. There is no
+Java-side KV substitute, child stdio, or blocking socket on this server path.
+A successful GET replies with a status and a second payload mail.
+
+### Real framed-NIO result (same runner)
+
+[Exact-source private CI #43110995803](https://github.com/voxletra/voxletra-e2e/actions/runs/43110995803)
+completed **SUCCESS**. The 12/12 real compiler/Truffle guest tests,
+2/2 additional throughput/binary-pipeline JUnit tests, and standalone
+async NIO host transport contract tests passed; no failed or skipped JUnit
+tests. Fast guest blob: `fb5f2480846417aac88513aaa166b1eeb3a47538`;
+original guest blob `6af96f78497268bac71e52b55dfa085ac6cd35ab`;
+fingerprint guest blob `e64e6241403762b6afb460b34b9c2a602ccd1c2e`.
+
+Ten commands per block (50% SET / 40% GET / 10% DEL), 64-byte binary
+values, 64 bounded binary keys, one sequential TCP connection, 200 warm-up
++ 600 timed operations per trial, three trials/endpoint, with every reply
+checked against a local oracle and all remaining keys correctly deleted
+outside timing. Official Redis 7.0.15 and Atto were both **ephemeral**.
+
+| Endpoint | Median ops/sec, 3 trials |
+| --- | ---: |
+| Atto guest RESP2 parser, old 1 KiB receive | 279.6 |
+| Atto guest RESP2 parser, fingerprint + 4 KiB receive | 324.6 |
+| **Atto-owned KV behind bounded NIO2 framed codec** | **4,893.2** |
+| Official Redis 7.0.15, AOF/RDB disabled | 56,077.2 |
+
+Framed-NIO measured **15.08×** the fingerprint/parser configuration
+on this CI runner; Redis still measured **~11.46×** the framed Atto
+throughput. In the framed actor's third trial, p50/p95/p99 were
+171/234/281 microseconds. It is a host-framed transport optimization,
+**not** an Atto-written RESP2 parser, zero-copy Bytes proof, or a
+native AOT language-speed ranking. The result is one shared-runner
+diagnostic sequence with short trials and interpreter fallback; it needs
+repeat independent and alternating-order benchmarks.
+
 
 Current restrictions: one client, ephemeral data, no actor-state sealing proof,
 no WAL/AOF/fsync durability, no Native Image AOT, no LLVM/.NET/Wasm/Forge parity.
