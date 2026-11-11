@@ -48,6 +48,21 @@ fn op(i:usize, trial:usize, state:&mut HashMap<Vec<u8>,Vec<u8>>)->(Vec<u8>,Reply
               (cmd(&[b"DEL",&key]),Reply::Int(if existed{1}else{0}))}
     }
 }
+// Each trial uses unique keys, but the server remains live across trials.
+// Verified cleanup outside the timed interval keeps this benchmark from
+// measuring cumulative Map quota exhaustion instead of steady-state KV speed.
+fn reset_trial<R:BufRead,W:Write>(
+    reader:&mut R, writer:&mut W, state:&HashMap<Vec<u8>,Vec<u8>>
+)->io::Result<usize>{
+    for key in state.keys(){
+        writer.write_all(&cmd(&[b"DEL".as_slice(),key.as_slice()]))?;
+        let actual=recv(reader)?;
+        if actual!=Reply::Int(1){
+            return Err(bad("trial cleanup did not delete a present key"));
+        }
+    }
+    Ok(state.len())
+}
 fn run(addr:&str,label:&str,trial:usize,n:usize,warmup:usize)->io::Result<f64>{
     let socket=TcpStream::connect(addr)?;socket.set_nodelay(true)?;
     socket.set_read_timeout(Some(Duration::from_secs(20)))?;
@@ -65,10 +80,12 @@ fn run(addr:&str,label:&str,trial:usize,n:usize,warmup:usize)->io::Result<f64>{
         if i>=warmup{latency.push(before.elapsed().as_micros());}
     }
     let secs=started.expect("requests positive").elapsed().as_secs_f64();
+    let cleanup_count=reset_trial(&mut reader,&mut writer,&state)?;
+    println!("BENCH_TRIAL_RESET label={label} trial={} verified_deleted={cleanup_count} correctness=PASS",trial+1);
     latency.sort_unstable();let p=|v:usize|latency[(latency.len()-1)*v/100];
     let rate=n as f64/secs;
     println!("BENCH label={label} trial={} checks={} measured={} ops_per_sec={rate:.1} p50_us={} p95_us={} p99_us={}",
-        trial+1,n+warmup,n,p(50),p(95),p(99)); Ok(rate)
+        trial+1,n+warmup+cleanup_count,n,p(50),p(95),p(99)); Ok(rate)
 }
 fn median(mut rates:Vec<f64>)->io::Result<f64>{
     if rates.is_empty() || rates.iter().any(|r| !r.is_finite() || *r<=0.0){
@@ -202,6 +219,36 @@ mod tests{
         assert!(second.keys().all(|key|key.starts_with(b"bench-t5-k")));
         assert!(first.keys().all(|key|!second.contains_key(key)));
         assert!(first.values().all(|value|value.len()==64));
+    }
+    #[test] fn cleanup_requires_one_verified_delete_per_live_key(){
+        let mut state=HashMap::new();
+        state.insert(b"one".to_vec(),vec![0]);
+        state.insert(b"two".to_vec(),vec![1]);
+        let mut written=Vec::new();
+        let mut responses=Cursor::new(b":1\r\n:1\r\n".as_slice());
+        assert_eq!(reset_trial(&mut responses,&mut written,&state).unwrap(),2);
+        assert_eq!(written.windows(4).filter(|w|*w==b"DEL\r").count(),2);
+    }
+    #[test] fn cleanup_rejects_missing_incorrect_and_truncated_ack(){
+        let mut state=HashMap::new();
+        state.insert(b"one".to_vec(),vec![0]);
+        for bad_reply in [b":0\r\n".as_slice(),b"+OK\r\n".as_slice(),b":1\r".as_slice()]{
+            let mut written=Vec::new();
+            let mut response=Cursor::new(bad_reply);
+            assert!(reset_trial(&mut response,&mut written,&state).is_err());
+        }
+    }
+    #[test] fn unique_trial_namespaces_would_exceed_bounded_guest_map_without_reset(){
+        let mut retained=std::collections::HashSet::new();
+        for trial in 0..10{
+            let mut state=HashMap::new();
+            for i in 0..3000{op(i,trial,&mut state);}
+            assert!(state.len()<=1024);
+            retained.extend(state.into_keys());
+        }
+        // Guest typed Map has a 4,096-key cap: failing to clear persistent
+        // test keys is a benchmark bug, not evidence of low Atto throughput.
+        assert!(retained.len()>4096);
     }
     #[test] fn median_handles_odd_even_and_rejects_invalid_samples(){
         assert_eq!(median(vec![4.0,1.0,9.0]).unwrap(),4.0);
