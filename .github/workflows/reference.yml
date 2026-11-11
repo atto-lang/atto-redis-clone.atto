@@ -1,0 +1,20 @@
+name: Python storage oracle (not native AttoLang)
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  reference-only:
+    name: Python reference storage/protocol tests (not Atto guest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile Python reference
+        run: PYTHONPATH=reference python -m compileall -q reference
+      - name: Execute storage and TCP tests
+        run: PYTHONPATH=reference python -m unittest discover -s reference/tests -v

@@ -1,0 +1,56 @@
+// AttoLang checkpoint / disk-tier orchestration target.
+//
+// A snapshot is a durable manifest of immutable sorted segments.
+// The commit sequence is WAL -> immutable SST -> fsync -> atomic manifest ->
+// fsync parent dir -> WAL pruning. Incomplete writes are never acknowledged.
+
+async fnc checkpoint(
+  KvDatabase db,
+  WalWriter wal,
+  SegmentStore disk
+) -> Result<u64, StorageError> ::
+
+  // Acquire a command-admission fence and drain all pre-fence writes.
+  val cut = await db.pause_admission_and_rotate_all()?;
+  defer {
+    cut.release();
+  }
+
+  val lsn = await wal.sync_barrier()?;
+  val generations = await db.export_frozen_generations()?;
+
+  // Disk I/O does not hold a critical-write actor state loan.
+  val persisted = await disk.write_sorted_segments(
+    rt take generations
+  )?;
+
+  await disk.fsync_segments()?;
+  await disk.publish_manifest_atomically(
+    rt take persisted, lsn
+  )?;
+  await disk.fsync_parent_directory()?;
+
+  // Retain WAL records newer than lsn.
+  await wal.prune_through(lsn)?;
+  return Ok(lsn);
+end
+
+
+async fnc spill_if_needed(
+  ActorRef<KvShard> shard,
+  SegmentStore disk,
+  u64 per_shard_budget
+) -> Result<void, StorageError> ::
+
+  val frozen = await shard.rotate_memtable(per_shard_budget);
+  if frozen as const generation then
+    // Ownership transfers to the background flush operation.
+    val segment = await disk.write_sorted_and_sync(
+      rt take generation
+    )?;
+    await disk.publish_segment_manifest(segment)?;
+    await shard.install_segment(rt take segment);
+  fi
+
+  return Ok();
+end

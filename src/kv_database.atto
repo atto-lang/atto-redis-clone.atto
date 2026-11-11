@@ -1,0 +1,138 @@
+// Atto Redis Clone: actor-owned native implementation target.
+//
+// STATUS: TARGET / NOT_COMPILED. These storage and networking library APIs
+// are proposed contracts. The Python reference/ is executable today.
+// No actor-state loan crosses await, and methods use snake_case.
+//
+// Key/value ownership is shard-local. The WAL is ordered and committed before
+// an in-memory write becomes visible to a client.
+
+define serial actor WalWriter as
+
+  state {
+    let u64 last_lsn: 0;
+  }
+
+  async append(WalRecord record) -> Result<u64, StorageError> ::
+    // WalFile.append_and_fsync is an asynchronous, framed, CRC-checked
+    // durability operation to implement in core/io for each backend.
+    val lsn = await WalFile.append_and_fsync(rt take record)?;
+
+    self.handle_state(critical-write |s| -> {
+      s.last_lsn = lsn;
+    });
+
+    return Ok(lsn);
+  end
+
+  async sync_barrier() -> Result<u64, StorageError> ::
+    return await WalFile.sync_barrier();
+  end
+end
+
+
+define serial actor KvShard as
+  state {
+    let HashMap<Bytes, Bytes> active: HashMap.new();
+    let Vector<ImmutableMemtable> pending: Vector.new();
+    let Vector<SstSegment> segments: Vector.new();
+    let u64 active_bytes: 0;
+  }
+
+  async set(
+    ActorRef<WalWriter> wal,
+    Bytes key,
+    Bytes value
+  ) -> Result<u64, StorageError> ::
+
+    // Build an owned WAL frame before moving key/value into the map.
+    val record = WalRecord.set_from_borrow(
+      rt borrow key,
+      rt borrow value
+    );
+
+    // Serial execution through suspension must be enforced by the shard
+    // command admission queue; see docs/ACTOR_RUNTIME_GATES.md.
+    val lsn = await wal.append(rt take record)?;
+
+    self.handle_state(critical-write |s| -> {
+      s.active.insert(rt take key, rt take value);
+      s.active_bytes = s.active.estimated_memory_bytes();
+    });
+
+    return Ok(lsn);
+  end
+
+  get(Bytes key) -> Result<Option<Bytes>, StorageError> ::
+    // get_owned checks active, newest pending generation, newest SSTable.
+    // Never return a reference into sealed actor state.
+    return self.handle_state(critical-read |s| -> {
+      return StoreLookup.get_owned(
+        rt borrow s.active,
+        rt borrow s.pending,
+        rt borrow s.segments,
+        rt borrow key
+      );
+    });
+  end
+
+  async delete(
+    ActorRef<WalWriter> wal,
+    Bytes key
+  ) -> Result<u64, StorageError> ::
+
+    val record = WalRecord.delete_from_borrow(rt borrow key);
+    val lsn = await wal.append(rt take record)?;
+
+    self.handle_state(critical-write |s| -> {
+      // Tombstones must dominate older segment values.
+      s.active.remove_or_tombstone(rt take key, lsn);
+    });
+
+    return Ok(lsn);
+  end
+
+  rotate_memtable(u64 max_bytes) -> Option<ImmutableMemtable> ::
+    return self.handle_state(critical-write |s| -> {
+      if s.active_bytes < max_bytes then
+        return None;
+      fi
+      return Some(s.active.freeze_and_replace());
+    });
+  end
+
+  install_segment(SstSegment segment) -> void ::
+    self.handle_state(critical-write |s| -> {
+      s.segments.push(rt take segment);
+      s.pending.remove_durable_generations();
+    });
+  end
+end
+
+
+define class KvDatabase as
+  final Vector<ActorRef<KvShard>> shards;
+  final ActorRef<WalWriter> wal;
+
+  shard_index(Bytes key) -> u64 ::
+    // Stable across process restart; NEVER use process-randomized hash().
+    return StableHash.crc32(rt borrow key) % self.shards.length();
+  end
+
+  async set(Bytes key, Bytes value) -> Result<u64, StorageError> ::
+    val i = self.shard_index(key);
+    return await self.shards[i].set(
+      self.wal, rt take key, rt take value
+    );
+  end
+
+  async get(Bytes key) -> Result<Option<Bytes>, StorageError> ::
+    val i = self.shard_index(key);
+    return await self.shards[i].get(rt take key);
+  end
+
+  async delete(Bytes key) -> Result<u64, StorageError> ::
+    val i = self.shard_index(key);
+    return await self.shards[i].delete(self.wal, rt take key);
+  end
+end
