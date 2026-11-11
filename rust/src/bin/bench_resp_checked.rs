@@ -107,10 +107,14 @@ fn series(addr:&str,label:&str,trials:usize,n:usize,w:usize)->io::Result<f64>{
 fn main()->io::Result<()>{
     let args:Vec<String>=env::args().collect();let (mut atto,mut rust)=(None,None);
     let (mut n,mut w,mut trials)=(500usize,50usize,3usize);
+    let mut atto_label="atto_actor_bridge_ephemeral".to_owned();
+    let mut atto_scope="Atto_guest_actor_plus_JDK21_TCP_bridge_no_WAL".to_owned();
     let mut i=1;while i<args.len(){
         if i+1>=args.len(){return Err(bad("missing option value"));}
         match args[i].as_str(){
             "--atto"=>atto=Some(args[i+1].clone()),
+            "--atto-label"=>atto_label=args[i+1].clone(),
+            "--atto-scope"=>atto_scope=args[i+1].clone(),
             "--rust"=>rust=Some(args[i+1].clone()),
             "--requests"=>n=args[i+1].parse().map_err(|_|bad("requests"))?,
             "--warmup"=>w=args[i+1].parse().map_err(|_|bad("warmup"))?,
@@ -119,11 +123,17 @@ fn main()->io::Result<()>{
         }i+=2;
     }
     if atto.is_none()&&rust.is_none(){return Err(bad("no endpoint"));}
+    if atto_label.is_empty() || atto_label.len()>64
+        || !atto_label.bytes().all(|b| b.is_ascii_alphanumeric() || b==b'_')
+        || atto_scope.is_empty() || atto_scope.len()>160
+        || !atto_scope.bytes().all(|b| b.is_ascii_alphanumeric() || b==b'_') {
+        return Err(bad("unsafe benchmark label/scope"));
+    }
     if n==0||n>1000000||w>100000||trials==0||trials>20{return Err(bad("invalid sizes"));}
     println!("BENCH_CONTEXT=50percent_SET_40percent_GET_10percent_DEL 64byte_values 1024key_space verified_replies warmup={w} requests={n} trials={trials}");
-    println!("BENCH_ATTO_SCOPE=Atto_guest_actor_plus_JDK21_TCP_bridge_no_WAL");
+    println!("BENCH_ATTO_SCOPE={atto_scope}");
     let r=if let Some(a)=rust{Some(series(&a,"rust_fsync_always",trials,n,w)?)}else{None};
-    let a=if let Some(a)=atto{Some(series(&a,"atto_actor_bridge_ephemeral",trials,n,w)?)}else{None};
+    let a=if let Some(a)=atto{Some(series(&a,&atto_label,trials,n,w)?)}else{None};
     if let (Some(r),Some(a))=(r,a){println!("BENCH_RATIO atto_bridge_over_rust={:.4} comparable_durability=false",a/r);}
     Ok(())
 }
