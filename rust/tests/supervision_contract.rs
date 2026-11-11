@@ -325,7 +325,7 @@ fn atto_supervision_contract_is_not_executable_evidence() {
         "StorageAdmission.fence_and_drain",
         "StorageAdmission.publish_ready",
         "StorageRecovery.load_and_verify",
-        "ProcessLifecycle.fail_stop",
+        "fail-stop",
     ] {
         assert!(source.contains(name), "missing supervision requirement: {name}");
     }
