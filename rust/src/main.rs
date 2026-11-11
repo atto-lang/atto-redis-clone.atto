@@ -1,5 +1,5 @@
 use atto_redis_clone::{server, Config, Engine};
-use std::{env, io, sync::Arc, thread, time::Duration};
+use std::{env, io, net::{IpAddr, SocketAddr}, sync::Arc, thread, time::Duration};
 fn bad(m: &str) -> io::Error { io::Error::new(io::ErrorKind::InvalidInput, m) }
 fn main() -> io::Result<()> {
     let mut argv = env::args().skip(1);
@@ -28,11 +28,16 @@ fn main() -> io::Result<()> {
         }
     }
     if checkpoint == 0 { return Err(bad("checkpoint interval must be positive")); }
+    // Remote unauthenticated Redis access is unsafe. Fail closed until an
+    // authenticated and encrypted listener is explicitly implemented.
+    let ip: IpAddr = host.parse().map_err(|_| bad("host must be a numeric loopback IP"))?;
+    if !ip.is_loopback() { return Err(bad("remote listener forbidden without auth/TLS; use loopback")); }
+    let addr = SocketAddr::new(ip, port);
     let engine = Arc::new(Engine::open(path, cfg)?);
     let keeper = Arc::clone(&engine);
     thread::spawn(move || loop {
         thread::sleep(Duration::from_secs(checkpoint));
         if let Err(e) = keeper.checkpoint() { eprintln!("checkpoint error: {e}"); }
     });
-    server::serve(&format!("{host}:{port}"), engine)
+    server::serve(&addr.to_string(), engine)
 }
