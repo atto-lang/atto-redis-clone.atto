@@ -62,11 +62,15 @@ public final class AttoRedisRespBridge {
             process = new ProcessBuilder(command).start();
             input = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.US_ASCII));
             output = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.US_ASCII));
-            ordered = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
-                Thread thread = new Thread(r, "atto-guest-ipc");
-                thread.setDaemon(true);
-                return thread;
-            });
+            // The previous unbounded single-thread queue retained up to 32
+            // concurrent 1 MiB requests per connection, with no queue cap.
+            // Keep the global actor command lane FIFO but bound admission.
+            ordered = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(MAX_CLIENTS), r -> {
+                    Thread thread = new Thread(r, "atto-guest-ipc");
+                    thread.setDaemon(true);
+                    return thread;
+                }, new ThreadPoolExecutor.AbortPolicy());
             Thread errors = new Thread(() -> {
                 try (InputStream stream = process.getErrorStream()) {
                     byte[] buf = new byte[1024];
@@ -112,7 +116,9 @@ public final class AttoRedisRespBridge {
 
         byte[] request(String opcode, byte[] key, byte[] value) throws IOException {
             if (closed.get() || !process.isAlive()) throw new IOException("Atto guest unavailable");
-            Future<byte[]> pending = ordered.submit(() -> {
+            Future<byte[]> pending;
+            try {
+                pending = ordered.submit(() -> {
                 input.write(opcode); input.write('\n');
                 input.write(HEX.formatHex(key)); input.write('\n');
                 if (value != null) { input.write(HEX.formatHex(value)); input.write('\n'); }
@@ -146,7 +152,12 @@ public final class AttoRedisRespBridge {
                     }
                     default -> throw new IOException("unrecognized Atto guest IPC reply");
                 };
-            });
+                });
+            } catch (java.util.concurrent.RejectedExecutionException overloaded) {
+                // Do not destroy a healthy Atto owner when a client floods
+                // the bridge: reject this request and preserve FIFO order.
+                throw new IOException("Atto guest command queue full", overloaded);
+            }
             try {
                 return pending.get(15, TimeUnit.SECONDS);
             } catch (InterruptedException interrupted) {
