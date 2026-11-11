@@ -12,6 +12,11 @@ live Atto RESP2 TCP, and verified cleanup after every trial.
 - Rust durable WAL fsync=always: **7,071.1 median ops/sec**
 - Diagnostic ratio: **62.14%**, **not apples-to-apples** because only Rust is durable.
 
+A separate exact-source rerun with **8/8 real Atto guest tests** passed and measured
+**6,494.7 Atto actor ops/sec** versus **6,367.3 Rust ops/sec** (diagnostic ratio
+1.0200), showing substantial inter-run variability. Do not infer native
+Atto/Rust speed parity or statistical superiority from these numbers.
+
 Each of ten trials had 1,000 warm-up, 2,000 measured and 758 correctness-checked
 out-of-timer key deletions on each endpoint. See [execution and protocol
 limits](docs/ATTO_ACTOR_PERFORMANCE.md). The native Atto async TCP and WAL
