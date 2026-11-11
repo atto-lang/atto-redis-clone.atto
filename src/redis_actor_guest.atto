@@ -40,23 +40,23 @@ define actor KvShardSmoke as
 end
 
 pub async routine main(): void {
-  val actor = spawn KvShardSmoke();
-  await actor.get_ready();
+  val worker = spawn KvShardSmoke();
+  await worker.get_ready();
 
-  actor.send("set");
-  val first = (await actor.outputs.next()).value.unwrap();
+  worker.send("set");
+  val first = (await worker.outputs.next()).value.unwrap();
   stdio.stdout.write(first.value);
   stdio.stdout.write("|");
 
-  actor.send("get");
-  val second = (await actor.outputs.next()).value.unwrap();
+  worker.send("get");
+  val second = (await worker.outputs.next()).value.unwrap();
   stdio.stdout.write(second.value);
   stdio.stdout.write("|");
 
-  actor.send("delete");
-  val third = (await actor.outputs.next()).value.unwrap();
+  worker.send("delete");
+  val third = (await worker.outputs.next()).value.unwrap();
   stdio.stdout.write(third.value);
 
-  await actor.get_done();
+  await worker.get_done();
   return;
 }
