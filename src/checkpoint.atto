@@ -25,11 +25,15 @@ async fnc checkpoint(
 end
 
 async fnc spill_if_needed(
-  ActorRef<KvShard> shard, ActorRef<WalWriter> wal,
+  u64 storage_epoch, ActorRef<KvShard> shard, ActorRef<WalWriter> wal,
   SegmentStore disk, u64 per_shard_budget
 ) -> Result<void, StorageError> ::
-  val durable_lsn = await wal.sync_barrier()?;
-  val frozen = await shard.rotate_memtable(per_shard_budget)?;
+  // A retired maintenance job may not install a segment into a new epoch.
+  // Hold the same admission guard through segment + manifest publication.
+  val admission = await StorageAdmission.enter(storage_epoch)?;
+  defer { admission.release(); }
+  val durable_lsn = await wal.sync_barrier(storage_epoch)?;
+  val frozen = await shard.rotate_memtable(storage_epoch, per_shard_budget)?;
   if frozen as const generation then
     // Capture generation identity BEFORE moving its payload.
     val generation_id = generation.generation_id;
@@ -38,7 +42,7 @@ async fnc spill_if_needed(
     // receives its ownership only after the durable publication completes.
     await disk.atomic_add_segment_to_manifest(rt borrow segment)?;
     await shard.install_persisted_segment(
-      rt take segment, generation_id
+      storage_epoch, rt take segment, generation_id
     )?;
   fi
   return Ok();
