@@ -1,0 +1,12 @@
+// Portable scalar-only admission. This is NOT a native Redis server.
+fnc next_lsn(int previous): int {
+  return previous + 1;
+}
+
+pub routine main(): int {
+  val int accepted = next_lsn(40);
+  if accepted == 41; then
+    return 42;
+  fi
+  return 1;
+}
