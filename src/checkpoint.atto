@@ -1,56 +1,42 @@
-// AttoLang checkpoint / disk-tier orchestration target.
-//
-// A snapshot is a durable manifest of immutable sorted segments.
-// The commit sequence is WAL -> immutable SST -> fsync -> atomic manifest ->
-// fsync parent dir -> WAL pruning. Incomplete writes are never acknowledged.
+// Atto Redis clone checkpoint contract.
+// NATIVE_COMPILE=NOT_EXECUTED. All sync/disk APIs are proposed contracts.
 
 async fnc checkpoint(
-  KvDatabase db,
-  WalWriter wal,
-  SegmentStore disk
+  KvDatabase db, ActorRef<WalWriter> wal, SegmentStore disk
 ) -> Result<u64, StorageError> ::
+  // Pause admissions and DRAIN every in-flight shard command through WAL+apply;
+  // pausing mailbox delivery alone does not establish a consistent cut.
+  val fence_guard = await db.pause_and_drain_all_shard_lanes()?;
+  defer { fence_guard.release(); }
 
-  // Acquire a command-admission fence and drain all pre-fence writes.
-  val cut = await db.pause_admission_and_rotate_all()?;
-  defer {
-    cut.release();
-  }
+  val fence_lsn = await wal.sync_barrier()?;
+  val frozen = await db.freeze_all_shards_through_lsn(fence_lsn)?;
+  fence_guard.release();
 
-  val lsn = await wal.sync_barrier()?;
-  val generations = await db.export_frozen_generations()?;
-
-  // Disk I/O does not hold a critical-write actor state loan.
-  val persisted = await disk.write_sorted_segments(
-    rt take generations
+  val segments = await disk.write_sorted_sst_and_fsync(rt take frozen)?;
+  val manifest = await disk.prepare_global_manifest(
+    rt take segments, fence_lsn
   )?;
+  await disk.publish_manifest_and_fsync_parent(rt take manifest)?;
 
-  await disk.fsync_segments()?;
-  await disk.publish_manifest_atomically(
-    rt take persisted, lsn
-  )?;
-  await disk.fsync_parent_directory()?;
-
-  // Retain WAL records newer than lsn.
-  await wal.prune_through(lsn)?;
-  return Ok(lsn);
+  // Prune only through the GLOBAL durable fence; never max(shard marks).
+  await disk.prune_wal_through_global_fence(fence_lsn)?;
+  return Ok(fence_lsn);
 end
 
-
 async fnc spill_if_needed(
-  ActorRef<KvShard> shard,
-  SegmentStore disk,
-  u64 per_shard_budget
+  ActorRef<KvShard> shard, ActorRef<WalWriter> wal,
+  SegmentStore disk, u64 per_shard_budget
 ) -> Result<void, StorageError> ::
-
-  val frozen = await shard.rotate_memtable(per_shard_budget);
+  val durable_lsn = await wal.sync_barrier()?;
+  val frozen = await shard.rotate_memtable(per_shard_budget)?;
   if frozen as const generation then
-    // Ownership transfers to the background flush operation.
-    val segment = await disk.write_sorted_and_sync(
-      rt take generation
+    val segment = await disk.write_sorted_sst_and_fsync(rt take generation)?;
+    // Manifest durable before pending memtable generation retired.
+    await disk.atomic_add_segment_to_manifest(segment)?;
+    await shard.install_persisted_segment(
+      rt take segment, generation.generation_id
     )?;
-    await disk.publish_segment_manifest(segment)?;
-    await shard.install_segment(rt take segment);
   fi
-
   return Ok();
 end
