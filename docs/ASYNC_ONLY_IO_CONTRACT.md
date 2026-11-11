@@ -86,3 +86,33 @@ of 1 MiB, and operates through JDK `AsynchronousServerSocketChannel`,
 No source org GitHub Actions minutes or unsafe public mirrors are required:
 use private approved funded-carrier branches with exact source blob SHAs
 and nonzero executed JUnit receipts.
+
+
+## Executed all-NIO Atto Redis gate (2026-11-11)
+
+The legacy JDK TCP + blocking child-stdio bridge remains only for compatibility
+testing. It is **not** the native async server and cannot be relabelled
+async-only. New native Atto guests must use the NIO2 capability runtime:
+`network.listen_async`, `listener.accept_async`, socket
+`read_bytes_async` / `write_bytes_async` (or bounded NIO2
+`read_resp2_hex_async` / `write_resp2_hex_async`), and `close_async`.
+No synchronous socket, stdin pipes, or blocking `Future.get` on actor carriers.
+
+- Compiler-backed [exact-source run #43108139883](https://github.com/voxletra/voxletra-e2e/actions/runs/43108139883): **12/12 real Atto compiler/Truffle NIO guest JUnit tests pass**; no failures, errors, or skips. Real actor binary RESP2, oversized/malformed rejection, and hash-collision binary-key identity were exercised.
+- Native Atto actor guest source blob: `e64e6241403762b6afb460b34b9c2a602ccd1c2e`.
+- [Same-runner run #43108684509](https://github.com/voxletra/voxletra-e2e/actions/runs/43108684509): **3 trials × 600 measured TCP requests** each; 50% SET / 40% GET / 10% DEL, binary keys and 64-byte values, 64-key fixed space, 200 warmups/trial, oracle-checked replies, per-trial cleanup (outside timer). Original 1KiB-read NIO Atto median **270.3 ops/s**; fingerprint+4KiB-read NIO Atto **302.6 ops/s**, up **11.97%** in this short diagnostic. Same host official Redis 7.0.15 with AOF/RDB disabled measured **51,218.8 ops/s**. They are different server architectures; this is not native optimized Truffle/AOT parity.
+- The stronger result is a bottleneck finding: the guest's per-byte RESP2 state machine and boxed `List<int>` are expensive under JDK21's reported interpreter fallback. Tuning the Map alone will not close the gap.
+
+The optional `guest/redis_actor_nio_fast.atto` takes a different,
+explicitly documented architecture: NIO2's bounded incremental native codec
+produces hex strings, while the Atto actor continues to own the sole Map and
+processes each command in **one typed actor mail**. There is no Java-side
+KV substitute or blocking I/O on this server route. That is a **host-framed
+transport optimization**, not an Atto-written RESP2 parser or zero-copy
+Bytes design. Treat its binary/stream conformance and performance as pending
+until an exact-blob guest execution gate passes.
+
+Current restrictions: one client, ephemeral data, no actor-state sealing proof,
+no WAL/AOF/fsync durability, no Native Image AOT, no LLVM/.NET/Wasm/Forge parity.
+Benchmark clients may use blocking socket calls; production Atto and NIO2
+runtime code may not.
