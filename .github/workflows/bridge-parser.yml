@@ -1,0 +1,26 @@
+name: Atto Redis bridge parser safety (host only)
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+
+jobs:
+  resp-bridge-parser:
+    name: Execute Java bridge parser regression tests (Atto guest NOT_EXECUTED)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Compile actual bridge parser and regression tests
+        run: |
+          mkdir -p /tmp/atto-redis-bridge-test
+          javac --release 21 -d /tmp/atto-redis-bridge-test \
+            bridge/AttoRedisRespBridge.java \
+            bridge/AttoRedisRespBridgeBoundsTest.java
+      - name: Execute 17 adversarial and binary RESP2 parser assertions
+        run: java -cp /tmp/atto-redis-bridge-test AttoRedisRespBridgeBoundsTest
