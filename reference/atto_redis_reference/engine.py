@@ -80,7 +80,7 @@ def encode_frame(magic: bytes, seq: int, key: bytes, value: Optional[bytes]) -> 
     return FRAME.pack(magic, len(payload), zlib.crc32(payload)) + payload
 
 
-def scan_frames(path: Path, magic: bytes, max_frame: int, *, salvage_tail: bool = False):
+def scan_frames(path: Path, magic: bytes, max_frame: int, *, salvage_tail: bool = False, ordered_seq: bool = True):
     """Yield (byte_offset, sequence, key, value). Full corrupt frames always fail closed."""
     with path.open("r+b" if salvage_tail else "rb") as fh:
         prev_seq = -1
@@ -112,7 +112,7 @@ def scan_frames(path: Path, magic: bytes, max_frame: int, *, salvage_tail: bool 
             seq, op, nk, nv = RECORD.unpack_from(payload)
             if op not in (SET, DELETE) or (op == DELETE and nv != 0) or nk == 0:
                 raise CorruptData(f"invalid record: {path}:{start}")
-            if RECORD.size + nk + nv != n or seq <= prev_seq:
+            if RECORD.size + nk + nv != n or (ordered_seq and seq <= prev_seq):
                 raise CorruptData(f"malformed/out-of-order record: {path}:{start}")
             prev_seq = seq
             key = payload[RECORD.size:RECORD.size + nk]
@@ -184,7 +184,7 @@ class Segment:
     def load(cls, path: Path, max_frame: int) -> "Segment":
         index = {}
         last_key = None
-        for offset, _, key, _ in scan_frames(path, SST_MAGIC, max_frame):
+        for offset, _, key, _ in scan_frames(path, SST_MAGIC, max_frame, ordered_seq=False):
             if last_key is not None and key <= last_key:
                 raise CorruptData(f"segment keys not sorted: {path}")
             index[key] = offset
@@ -361,6 +361,17 @@ class Engine:
 
     def delete(self, key: bytes) -> int:
         return self._write(key, None)
+
+    def delete_with_count(self, key: bytes) -> int:
+        """Atomic Redis DEL existence result within the shard writer lane."""
+        self._validate(key)
+        with self.gate:
+            self._ensure_healthy()
+            shard = self.shards[self.shard_index(key)]
+            with shard.lock:
+                existed = self.get(key) is not None
+                self._write(key, None)
+                return int(existed)
 
     def get(self, key: bytes) -> Optional[bytes]:
         self._validate(key)
