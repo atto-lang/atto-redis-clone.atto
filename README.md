@@ -12,6 +12,22 @@ Small reviewed `.atto` guest fixtures have now executed on actual compilers:
 
 These results use pinned private compiler snapshots, not the current full compiler source heads; the full `src/*.atto` Redis server remains an uncompiled contract. Binary WAL fsync, native Atto RESP2 networking, Graal Native Image, and Atto/Rust performance are NOT_EXECUTED. Exact receipts and blockers: [native vertical-slice evidence](docs/NATIVE_VERTICAL_SLICE.md).
 
+## Redis actor supervision (design target, not native-executed)
+
+[Supervision and crash-recovery contract](docs/SUPERVISION_AND_RECOVERY.md)
+now specifies a root supervisor, a one-for-all storage supervisor for WAL and
+all shards, a network supervisor and a maintenance supervisor. The storage
+generation uses fail-closed epoch admission: immutable `KvDatabase` routing
+snapshots hold `storage_epoch`, and SET/GET/DELETE hold admission guards
+through suspended WAL and shard operations. Root failure is **process
+fail-stop**, not a self-restart; corruption and restart storms stay fenced.
+
+`src/redis_supervision.atto` is **NOT_COMPILED** proposed actor/runtime
+source. `rust/tests/supervision_contract.rs` executes only a Rust state-machine
+model of fenced recovery, stale notices and restart limits. Neither is evidence
+that Atto's `Supervisor` base, epoch admission, replay, network or durable
+recovery actually runs. The native-guest and storage runtime gates remain open.
+
 ## Rust reference (std-only, Rust 1.85+, Unix)
 
     cargo test --manifest-path rust/Cargo.toml --offline
@@ -31,7 +47,7 @@ The driver performs 50% SET, 40% GET, 10% DEL (fixed 64-byte values, 1,024 key w
 
 ### Layout
 
-- src/kv_database.atto: sealed actor-owned shard target, WAL and command admission ordering
+- src/kv_database.atto: sealed actor-owned shard target, WAL and per-generation command admission\n- src/redis_supervision.atto: root/storage/network/maintenance supervisor target (NOT_COMPILED)\n- docs/SUPERVISION_AND_RECOVERY.md: failure policy, epoch fencing and native acceptance gates\n- rust/tests/supervision_contract.rs: Rust-only executable model; NOT an Atto compiler test
 - src/checkpoint.atto: cross-shard durable manifest fence
 - rust/src/lib.rs: Rust reference storage engine
 - rust/src/server.rs: bounded RESP2 TCP handler
