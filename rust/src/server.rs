@@ -98,6 +98,10 @@ pub fn serve_connection(stream:TcpStream,engine:Arc<Engine>)->io::Result<()>{
         writer.write_all(&response)?;
     }
 }
+struct ConnectionPermit(Arc<AtomicUsize>);
+impl Drop for ConnectionPermit {
+    fn drop(&mut self) { self.0.fetch_sub(1,Ordering::AcqRel); }
+}
 pub fn serve(addr:&str,engine:Arc<Engine>)->io::Result<()>{
     let listener=TcpListener::bind(addr)?;
     let active=Arc::new(AtomicUsize::new(0));
