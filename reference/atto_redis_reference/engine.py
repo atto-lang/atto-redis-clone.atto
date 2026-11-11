@@ -145,27 +145,38 @@ class Wal:
         try:
             path.touch(exist_ok=True)
             sync_directory(path.parent)
-            self.recovered = list(
-                scan_frames(path, WAL_MAGIC, self.max_frame, salvage_tail=True)
-            )
-            if self.recovered:
-                self.seq = self.recovered[-1][1]
+            # Stream WAL records instead of keeping every historical value in RAM.
+            for _, seq, _, _ in scan_frames(
+                path, WAL_MAGIC, self.max_frame, salvage_tail=True
+            ):
+                self.seq = seq
             self.fh = path.open("ab", buffering=0)
+            self.failed = False
         except BaseException:
             self.lease.close()
             raise
 
     def append(self, key: bytes, value: Optional[bytes]) -> int:
         with self.lock:
-            seq = self.seq + 1
-            self.fh.write(encode_frame(WAL_MAGIC, seq, key, value))
-            self.fh.flush()
-            now = time.monotonic()
-            if self.policy == "always" or now - self.last_sync >= 1.0:
-                os.fsync(self.fh.fileno())
-                self.last_sync = now
-            self.seq = seq
-            return seq
+            if self.failed:
+                raise StoreError("WAL is poisoned after a failed append")
+            try:
+                seq = self.seq + 1
+                frame = encode_frame(WAL_MAGIC, seq, key, value)
+                if self.fh.write(frame) != len(frame):
+                    raise OSError("short WAL write")
+                self.fh.flush()
+                now = time.monotonic()
+                if self.policy == "always" or now - self.last_sync >= 1.0:
+                    os.fsync(self.fh.fileno())
+                    self.last_sync = now
+                self.seq = seq
+                return seq
+            except BaseException:
+                # A partial write/fsync error makes subsequent append order
+                # unknowable. Fail closed until the process reopens and scans.
+                self.failed = True
+                raise
 
     def rewrite_after(self, boundary: int) -> None:
         """Discard checkpoint-covered records only AFTER the manifest is durable."""
@@ -278,21 +289,32 @@ class Engine:
         self.shards = [Shard() for _ in range(config.shards)]
         self.manifest_path = self.dir / "MANIFEST.json"
         self.max_frame = RECORD.size + config.max_key_bytes + config.max_value_bytes
-        self.manifest = self._read_manifest()
-        for i, shard in enumerate(self.shards):
-            for filename in self.manifest["segments"][i]:
-                shard.segments.append(Segment.load(self.dir / filename, self.max_frame))
+        # Acquire the exclusive directory lease BEFORE reading the manifest or
+        # loading segments, so a second process cannot race checkpoint commits.
         self.wal = Wal(self.dir / "WAL.log", config)
-        self.wal.seq = max(self.wal.seq, *self.manifest["checkpoints"])
-        for _, seq, key, val in self.wal.recovered:
-            index = self.shard_index(key)
-            if seq > self.manifest["checkpoints"][index]:
-                shard = self.shards[index]
-                old = shard.active.get(key)
-                shard.active[key] = Entry(seq, val)
-                shard.active_bytes += self._entry_size(key, val) - (
-                    self._entry_size(key, old.value) if old is not None else 0
-                )
+        try:
+            self.manifest = self._read_manifest()
+            for i, shard in enumerate(self.shards):
+                for filename in self.manifest["segments"][i]:
+                    segment_path = self.dir / filename
+                    if segment_path.is_symlink():
+                        raise CorruptData("manifest refers to a symlink segment")
+                    shard.segments.append(Segment.load(segment_path, self.max_frame))
+            self.wal.seq = max(self.wal.seq, *self.manifest["checkpoints"])
+            for _, seq, key, val in scan_frames(
+                self.wal.path, WAL_MAGIC, self.max_frame
+            ):
+                index = self.shard_index(key)
+                if seq > self.manifest["checkpoints"][index]:
+                    shard = self.shards[index]
+                    old = shard.active.get(key)
+                    shard.active[key] = Entry(seq, val)
+                    shard.active_bytes += self._entry_size(key, val) - (
+                        self._entry_size(key, old.value) if old is not None else 0
+                    )
+        except BaseException:
+            self.wal.close()
+            raise
         self.fail: Optional[BaseException] = None
         self.closed = False
         self.jobs: queue.Queue = queue.Queue()
@@ -300,11 +322,22 @@ class Engine:
         self.worker.start()
 
     def _read_manifest(self) -> dict:
+        marker = self.dir / "FORMAT.v1"
+        if self.manifest_path.is_symlink() or marker.is_symlink():
+            raise CorruptData("storage metadata may not be symlinked")
         if not self.manifest_path.exists():
-            return {"format": 1, "shards": self.config.shards,
-                    "checkpoints": [0] * self.config.shards,
-                    "segments": [[] for _ in range(self.config.shards)]}
-        obj = json.loads(self.manifest_path.read_text("utf-8"))
+            if marker.exists() or any(self.dir.glob("shard-*.sst")):
+                raise CorruptData("manifest missing from an existing database")
+            # Persist the initial empty manifest, even before the first write,
+            # to distinguish a brand-new store from metadata loss on restart.
+            self.manifest = {"format": 1, "shards": self.config.shards,
+                             "checkpoints": [0] * self.config.shards,
+                             "segments": [[] for _ in range(self.config.shards)]}
+            self._save_manifest()
+        try:
+            obj = json.loads(self.manifest_path.read_text("utf-8"))
+        except (ValueError, UnicodeError) as exc:
+            raise CorruptData("invalid manifest encoding or JSON") from exc
         if obj.get("format") != 1 or obj.get("shards") != self.config.shards:
             raise CorruptData("manifest version/shard count mismatch")
         cps, lists = obj.get("checkpoints"), obj.get("segments")
@@ -320,6 +353,19 @@ class Engine:
             if any(not isinstance(n, str) or not SEGMENT_NAME.fullmatch(n) or
                    not n.startswith(f"shard-{i:03d}-") for n in names):
                 raise CorruptData("unsafe segment filename")
+        if not marker.exists():
+            tmp = self.dir / "FORMAT.v1.tmp"
+            try:
+                with tmp.open("w", encoding="ascii") as fh:
+                    fh.write("atto-redis-reference-v1\n")
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(tmp, marker)
+                sync_directory(self.dir)
+            finally:
+                tmp.unlink(missing_ok=True)
+        elif marker.read_text("ascii") != "atto-redis-reference-v1\n":
+            raise CorruptData("invalid database format marker")
         return obj
 
     def _save_manifest(self) -> None:
