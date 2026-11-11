@@ -131,6 +131,33 @@ class EngineTests(unittest.TestCase):
                     self.assertEqual(r.get(f"client-{n}-{k}".encode()), b"hello" * 20)
             r.close()
 
+    def test_forced_process_crash_recovers_fsynced_writes(self):
+        import os
+        import subprocess
+        import sys
+        with tempfile.TemporaryDirectory() as d:
+            code = (
+                "import os,sys; from atto_redis_reference.engine import Engine;"
+                "db=Engine(sys.argv[1]); db.set(b'crash',b'durable'); os._exit(0)"
+            )
+            env = dict(os.environ)
+            env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
+            subprocess.run([sys.executable, "-c", code, d],
+                           check=True, env=env, timeout=15)
+            r = Engine(d)
+            self.assertEqual(r.get(b"crash"), b"durable")
+            r.close()
+
+    def test_process_exclusive_wal_lock(self):
+        with tempfile.TemporaryDirectory() as d:
+            e = Engine(d, Config(shards=2))
+            from atto_redis_reference.engine import StoreError
+            with self.assertRaises(StoreError):
+                Engine(d, Config(shards=2))
+            e.close()
+            r = Engine(d, Config(shards=2))
+            r.close()
+
     def test_limits(self):
         with tempfile.TemporaryDirectory() as d:
             e = Engine(d, Config(shards=2, max_key_bytes=3, max_value_bytes=3))

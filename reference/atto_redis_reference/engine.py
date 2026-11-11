@@ -128,7 +128,22 @@ class Wal:
         self.lock = RLock()
         self.seq = 0
         self.last_sync = time.monotonic()
+        # An OS-held lease prevents two server processes from corrupting the WAL.
+        # The lock file remains on disk; the kernel releases the lease on crash.
+        self.lease = path.with_suffix(".lock").open("a+b")
+        try:
+            if os.name == "nt":
+                import msvcrt
+                self.lease.seek(0)
+                msvcrt.locking(self.lease.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(self.lease.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            self.lease.close()
+            raise StoreError("data directory already has an active writer") from exc
         path.touch(exist_ok=True)
+        sync_directory(path.parent)
         self.recovered = list(scan_frames(path, WAL_MAGIC, self.max_frame, salvage_tail=True))
         if self.recovered:
             self.seq = self.recovered[-1][1]
@@ -173,6 +188,7 @@ class Wal:
                 # 'everysec' policy becomes durable on graceful shutdown.
                 os.fsync(self.fh.fileno())
                 self.fh.close()
+            self.lease.close()
 
 
 @dataclass

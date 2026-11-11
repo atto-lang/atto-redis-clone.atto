@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from contextlib import suppress
+import logging
 from .engine import Config, Engine, StoreError
 
 MAX_ARGS = 16
@@ -97,8 +98,28 @@ async def serve_client(reader: asyncio.StreamReader,
             await writer.wait_closed()
 
 
-async def main_async(host: str, port: int, data: str, config: Config) -> None:
+async def maintenance_loop(engine: Engine, interval: float, compact_every: int) -> None:
+    """Bound WAL growth and SST count without tying up the event loop."""
+    n = 0
+    while True:
+        await asyncio.sleep(interval)
+        n += 1
+        try:
+            if n % compact_every == 0:
+                await asyncio.to_thread(engine.compact)
+            else:
+                await asyncio.to_thread(engine.checkpoint)
+        except StoreError:
+            logging.exception("storage maintenance failed; investigate before restart")
+
+
+async def main_async(host: str, port: int, data: str, config: Config,
+                     checkpoint_seconds: float = 60.0,
+                     compact_every: int = 10) -> None:
+    if checkpoint_seconds <= 0 or compact_every < 1:
+        raise ValueError("checkpoint interval and compaction period must be positive")
     engine = Engine(data, config)
+    upkeep = asyncio.create_task(maintenance_loop(engine, checkpoint_seconds, compact_every))
     try:
         server = await asyncio.start_server(
             lambda r, w: serve_client(r, w, engine), host=host, port=port
@@ -106,7 +127,10 @@ async def main_async(host: str, port: int, data: str, config: Config) -> None:
         async with server:
             await server.serve_forever()
     finally:
-        engine.close(checkpoint=False)
+        upkeep.cancel()
+        with suppress(asyncio.CancelledError):
+            await upkeep
+        await asyncio.to_thread(engine.close, False)
 
 
 def main() -> None:
@@ -117,11 +141,14 @@ def main() -> None:
     parser.add_argument("--shards", type=int, default=64)
     parser.add_argument("--spill-mib", type=int, default=64)
     parser.add_argument("--fsync", choices=("always", "everysec"), default="always")
+    parser.add_argument("--checkpoint-seconds", type=float, default=60.0)
+    parser.add_argument("--compact-every", type=int, default=10)
     args = parser.parse_args()
     config = Config(shards=args.shards, spill_bytes=args.spill_mib * 1024 * 1024,
                     fsync_policy=args.fsync)
     try:
-        asyncio.run(main_async(args.host, args.port, args.data_dir, config))
+        asyncio.run(main_async(args.host, args.port, args.data_dir, config,
+                               args.checkpoint_seconds, args.compact_every))
     except KeyboardInterrupt:
         pass
 
