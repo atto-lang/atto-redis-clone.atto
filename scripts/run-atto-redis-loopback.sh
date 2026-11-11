@@ -32,7 +32,8 @@ command -v javac >/dev/null || { echo "JDK21 javac required" >&2; exit 69; }
 command -v java >/dev/null || { echo "JDK21 java required" >&2; exit 69; }
 builddir="$(mktemp -d)"
 trap 'rm -rf "$builddir"' EXIT
-javac --release 21 -d "$builddir" "$root/bridge/AttoRedisRespBridge.java"
 classpath="$compiler/target/classes:$(cat "$compiler/target/conformance-classpath.txt")"
+javac --release 21 -cp "$classpath" -d "$builddir" \
+  "$root/bridge/AttoRedisRespBridge.java" "$root/bridge/AttoRedisGuestMain.java"
 java -cp "$builddir" AttoRedisRespBridge --port "$port" -- \
-  java -cp "$classpath" dev.oreslang.launcher.OresMain --no-core-log "$guest"
+  java -cp "$builddir:$classpath" AttoRedisGuestMain "$guest"
