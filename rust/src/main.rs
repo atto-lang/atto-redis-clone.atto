@@ -1,5 +1,5 @@
 use atto_redis_clone::{server, Config, Engine};
-use std::{env, io, sync::Arc, thread, time::Duration};
+use std::{env, io, net::{IpAddr, SocketAddr}, sync::Arc, thread, time::Duration};
 fn bad(m: &str) -> io::Error { io::Error::new(io::ErrorKind::InvalidInput, m) }
 fn main() -> io::Result<()> {
     let mut argv = env::args().skip(1);
@@ -8,9 +8,7 @@ fn main() -> io::Result<()> {
     let mut port: u16 = 6379;
     let mut cfg = Config::default();
     let mut checkpoint = 60u64;
-    let mut allow_remote = false;
     while let Some(flag) = argv.next() {
-        if flag == "--allow-remote" { allow_remote = true; continue; }
         let v = argv.next().ok_or_else(|| bad("option requires value"))?;
         match flag.as_str() {
             "--data-dir" => path = v,
@@ -30,11 +28,11 @@ fn main() -> io::Result<()> {
         }
     }
     if checkpoint == 0 { return Err(bad("checkpoint interval must be positive")); }
-    let addr: std::net::SocketAddr = format!("{host}:{port}").parse()
-        .map_err(|_| bad("host must be a numeric IP address"))?;
-    if !addr.ip().is_loopback() && !allow_remote {
-        return Err(bad("non-loopback bind requires --allow-remote; this server has no auth or TLS"));
-    }
+    // Remote unauthenticated Redis access is unsafe. Fail closed until an
+    // authenticated and encrypted listener is explicitly implemented.
+    let ip: IpAddr = host.parse().map_err(|_| bad("host must be a numeric loopback IP"))?;
+    if !ip.is_loopback() { return Err(bad("remote listener forbidden without auth/TLS; use loopback")); }
+    let addr = SocketAddr::new(ip, port);
     let engine = Arc::new(Engine::open(path, cfg)?);
     let keeper = Arc::clone(&engine);
     thread::spawn(move || loop {
