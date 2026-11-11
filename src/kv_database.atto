@@ -148,7 +148,11 @@ define serial actor KvShard as
   end
 end
 
+// A KvDatabase is an immutable routing SNAPSHOT for one storage generation,
+// not a process-lifetime singleton. The root distributes a fresh snapshot
+// after recovery; previous snapshots must fail admission, never hit old actors.
 define class KvDatabase as
+  final u64 storage_epoch;
   final Vector<ActorRef<KvShard>> shards;
   final ActorRef<WalWriter> wal;
 
@@ -158,16 +162,25 @@ define class KvDatabase as
   end
 
   async set(Bytes key, Bytes value) -> Result<WalAck, StorageError> ::
+    // Target primitive: atomic enter-or-reject + cancellation-safe owned
+    // generation lease. The lease is held THROUGH WAL append and state apply.
+    // Fencing closes admission and drains these leases before replay.
+    val admission = await StorageAdmission.enter(self.storage_epoch)?;
+    defer { admission.release(); }
     val i = self.shard_index(key);
     return await self.shards[i].set(self.wal, rt take key, rt take value);
   end
 
   async get(Bytes key) -> Result<Option<Bytes>, StorageError> ::
+    val admission = await StorageAdmission.enter(self.storage_epoch)?;
+    defer { admission.release(); }
     val i = self.shard_index(key);
     return await self.shards[i].get(rt take key);
   end
 
   async delete(Bytes key) -> Result<WalAck, StorageError> ::
+    val admission = await StorageAdmission.enter(self.storage_epoch)?;
+    defer { admission.release(); }
     val i = self.shard_index(key);
     return await self.shards[i].delete(self.wal, rt take key);
   end
