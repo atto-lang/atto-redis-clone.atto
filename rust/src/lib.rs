@@ -255,7 +255,8 @@ fn lock_store(dir: &Path) -> io::Result<File> {
     use std::os::fd::AsRawFd;
     unsafe extern "C" { fn flock(fd: i32, operation: i32) -> i32; }
     let lock_path = dir.join("WAL.lock");
-    if lock_path.exists() && lock_path.symlink_metadata()?.file_type().is_symlink() {
+    // A dangling symlink also must not be followed to an attacker-provided path.
+    if lock_path.symlink_metadata().is_ok_and(|m| m.file_type().is_symlink()) {
         return Err(invalid("symlink WAL lock"));
     }
     let file = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(lock_path)?;
