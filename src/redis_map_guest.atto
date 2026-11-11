@@ -1,0 +1,7 @@
+// Real AttoLang compiler/guest execution admission for Map-based key lookup.
+// NOT a concurrent/durable Redis server or benchmark.
+pub fnc main(): int {
+  const key = "answer";
+  const Map<String,int> kv = ~(key => 41);
+  return kv["answer"] + 1;
+}

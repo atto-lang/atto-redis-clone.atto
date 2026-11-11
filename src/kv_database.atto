@@ -1,0 +1,161 @@
+// Atto Redis clone actor storage contract.
+// NATIVE_COMPILE=NOT_EXECUTED; the storage APIs below are target interfaces.
+// The executable reference is Rust (rust/); there is no Python requirement.
+
+// A value is Option<Bytes>: None is a durable tombstone; Some(empty) is SET "".
+define class KvEntry as
+  final u64 lsn;
+  final Option<Bytes> value;
+end
+
+define serial actor WalWriter as
+  state {
+    let u64 last_accepted_lsn: 0;
+    let u64 last_durable_lsn: 0;
+    let bool poisoned: false;
+  }
+
+  async append_owned(
+    WalRecord record, SyncPolicy policy
+  ) -> Result<WalAck, StorageError> ::
+    // The WAL lane must remain FIFO through fsync suspension.
+    val already_poisoned = self.handle_state(critical-read |s| -> {
+      return s.poisoned;
+    });
+    if already_poisoned then
+      return Err(StorageError.poisoned_wal());
+    fi
+    val ack = await WalStorage.append_framed_crc(rt take record, policy)?;
+    val accepted = self.handle_state(critical-write |s| -> {
+      if ack.lsn <= s.last_accepted_lsn then
+        s.poisoned = true;
+        return false;
+      fi
+      s.last_accepted_lsn = ack.lsn;
+      if ack.durable then
+        s.last_durable_lsn = ack.lsn;
+      fi
+      return true;
+    });
+    if accepted eq false then
+      return Err(StorageError.invalid_lsn_order());
+    fi
+    return Ok(ack);
+  end
+
+  async sync_barrier() -> Result<u64, StorageError> ::
+    return await WalStorage.sync_through_last_admitted();
+  end
+end
+
+define serial actor KvShard as
+  state {
+    let HashMap<Bytes, KvEntry> active: HashMap.new();
+    let Vector<ImmutableMemtable> pending: Vector.new();
+    let Vector<SegmentHandle> segments: Vector.new();
+    let u64 active_bytes: 0;
+    let u64 last_applied_lsn: 0;
+    let bool fail_closed: false;
+  }
+
+  async set(
+    ActorRef<WalWriter> wal, Bytes key, Bytes value
+  ) -> Result<WalAck, StorageError> ::
+    // SerialCommandLane MUST ensure whole-command FIFO across await.
+    val ticket = await SerialCommandLane.acquire(self)?;
+    defer { ticket.release(); }
+    // Reserve fallible hashmap capacity BEFORE persistent log append.
+    // Reserve capacity without returning any state-owned handle: a pointer
+    // or loan token retained across await would violate actor isolation.
+    val capacity = self.handle_state(critical-write |s| -> {
+      return s.active.reserve_capacity(rt borrow key, rt borrow value);
+    });
+    capacity?;
+    val record = WalRecord.set_from_borrow(rt borrow key, rt borrow value)?;
+    val ack = await wal.append_owned(rt take record, SyncPolicy.always)?;
+    self.handle_state(critical-write |s| -> {
+      s.active.insert_pre_reserved(rt take key,
+        KvEntry(ack.lsn, Some(rt take value)));
+      s.last_applied_lsn = ack.lsn;
+      s.active_bytes = s.active.estimated_bytes();
+    });
+    return Ok(ack);
+  end
+
+  async delete(
+    ActorRef<WalWriter> wal, Bytes key
+  ) -> Result<WalAck, StorageError> ::
+    val ticket = await SerialCommandLane.acquire(self)?;
+    defer { ticket.release(); }
+    val capacity = self.handle_state(critical-write |s| -> {
+      return s.active.reserve_tombstone_capacity(rt borrow key);
+    });
+    capacity?;
+    val record = WalRecord.delete_from_borrow(rt borrow key)?;
+    val ack = await wal.append_owned(rt take record, SyncPolicy.always)?;
+    self.handle_state(critical-write |s| -> {
+      // Never merely remove an entry: an old SST value might reappear.
+      s.active.insert_pre_reserved(rt take key,
+        KvEntry(ack.lsn, None));
+      s.last_applied_lsn = ack.lsn;
+    });
+    return Ok(ack);
+  end
+
+  async get(Bytes key) -> Result<Option<Bytes>, StorageError> ::
+    // Clone immutable handles inside the critical loan. Disk await happens
+    // outside the callback; no actor-state reference escapes.
+    val view = self.handle_state(critical-read |s| -> {
+      return ShardReadView.snapshot_owned(
+        rt borrow s.active, rt borrow s.pending,
+        rt borrow s.segments, s.last_applied_lsn
+      );
+    });
+    return await StoreLookup.read_newest_owned(rt take view, rt take key);
+  end
+
+  async rotate_memtable(u64 max_bytes) -> Result<Option<ImmutableMemtable>, StorageError> ::
+    val durable_lsn = await WalStorage.sync_through_last_admitted()?;
+    return self.handle_state(critical-write |s| -> {
+      if s.active_bytes < max_bytes then
+        return Ok(None);
+      fi
+      return Ok(Some(s.active.freeze_replace_through(durable_lsn)));
+    });
+  end
+
+  async install_persisted_segment(
+    SegmentHandle segment, u64 generation_id
+  ) -> Result<void, StorageError> ::
+    self.handle_state(critical-write |s| -> {
+      s.segments.push(rt take segment);
+      s.pending.remove_generation(generation_id);
+    });
+    return Ok();
+  end
+end
+
+define class KvDatabase as
+  final Vector<ActorRef<KvShard>> shards;
+  final ActorRef<WalWriter> wal;
+
+  shard_index(Bytes key) -> u64 ::
+    // Stable hash partitioning; never use randomized process hash().
+    return StableHash.crc32(rt borrow key) % self.shards.length();
+  end
+
+  async set(Bytes key, Bytes value) -> Result<WalAck, StorageError> ::
+    val i = self.shard_index(key);
+    return await self.shards[i].set(self.wal, rt take key, rt take value);
+  end
+
+  async get(Bytes key) -> Result<Option<Bytes>, StorageError> ::
+    val i = self.shard_index(key);
+    return await self.shards[i].get(rt take key);
+  end
+
+  async delete(Bytes key) -> Result<WalAck, StorageError> ::
+    val i = self.shard_index(key);
+    return await self.shards[i].delete(self.wal, rt take key);
+  end
+end

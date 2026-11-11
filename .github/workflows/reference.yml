@@ -1,0 +1,35 @@
+name: Rust reference and Atto audit gates
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  rust-reference-only:
+    name: Rust reference tests; Atto guest NOT_EXECUTED
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Report Rust formatting drift (nonblocking)
+        continue-on-error: true
+        run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+      - name: Execute Rust correctness tests from unmodified checkout
+        run: cargo test --manifest-path rust/Cargo.toml --all-targets --offline -- --nocapture
+      - name: Lint Rust from unmodified checkout
+        run: cargo clippy --manifest-path rust/Cargo.toml --all-targets --offline -- -D warnings
+      - name: Compile Rust RESP benchmark
+        run: cargo build --manifest-path rust/Cargo.toml --release --bin bench_resp --offline
+      - name: Measure Rust RESP2 reference throughput on this runner (Atto NOT_EXECUTED)
+        shell: bash
+        run: |
+          cargo build --manifest-path rust/Cargo.toml --release --offline --bin atto-redis --bin bench_resp
+          DATA_DIR="$(mktemp -d)"
+          ./rust/target/release/atto-redis --data-dir "$DATA_DIR" --host 127.0.0.1 --port 16379 --shards 8 --spill-mib 8 --fsync always --checkpoint-seconds 60 > /tmp/atto-redis-rust.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; rm -rf "$DATA_DIR"' EXIT
+          sleep 2
+          ./rust/target/release/bench_resp --rust 127.0.0.1:16379 --requests 10000
