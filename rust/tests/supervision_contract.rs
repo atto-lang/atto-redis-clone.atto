@@ -331,4 +331,13 @@ fn atto_supervision_contract_is_not_executable_evidence() {
     }
     assert!(kv.contains("final u64 storage_epoch;"));
     assert_eq!(kv.matches("StorageAdmission.enter(self.storage_epoch)").count(), 3);
+    // The public router is not a sufficient guard: direct WAL/shard calls
+    // and late spill installation also require a live matching epoch.
+    assert_eq!(kv.matches("StorageAdmission.enter(storage_epoch)").count(), 7);
+    assert_eq!(kv.matches("StorageAdmission.require_actor_generation").count(), 5);
+    assert_eq!(kv.matches("WalStorage.require_current_writer").count(), 2);
+    assert_eq!(kv.matches("wal.append_owned(storage_epoch").count(), 2);
+    let checkpoint = include_str!("../../src/checkpoint.atto");
+    assert!(checkpoint.contains("StorageAdmission.enter(storage_epoch)"));
+    assert!(checkpoint.contains("storage_epoch, rt take segment, generation_id"));
 }
