@@ -11,7 +11,7 @@ const MAX_BULK_BYTES: usize=4 * 1024 * 1024;
 const MAX_REQUEST_BYTES: usize=8 * 1024 * 1024;
 const MAX_COMMAND_BYTES: usize=32;
 const MAX_LINE: usize=128;
-const MAX_CONNECTIONS: usize=64;
+const MAX_CONNECTIONS: usize=32;
 fn bad(s:&str)->io::Error { io::Error::new(io::ErrorKind::InvalidData,s) }
 fn line(r:&mut BufReader<TcpStream>)->io::Result<Option<Vec<u8>>> {
     let mut v=Vec::new();

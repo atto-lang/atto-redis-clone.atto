@@ -53,3 +53,14 @@ Native AttoLang guest code now executes `Map<K,V>.get_optional(key): Option<V>` 
 [Executed private exact-blob Java/GraalVM CI run #43055373575](https://github.com/voxletra/voxletra-e2e/actions/runs/43055373575) passed **27/27 real compiler/typechecker/Truffle guest JUnit tests**, with zero skipped. Carrier SHA: `ee4afb302b946cb38f1d528715b436caf3502a33`, tree `01e06c40e17574c7ba9bf5265434d48a6bf9e259`. The 362 pinned source manifest entries and four changed compiler/JUnit blobs were independently verified; this was an existing approved private mirror and involved no source-org Actions job admission.
 
 **Not yet executed:** full `kv_database.atto` and `checkpoint.atto` compilation, native `std/net` TCP listener, RESP2 over Atto sockets, WAL/SST fsync and crash replay, AOT/multi-backend parity, and Atto/Rust throughput. The Redis PR and compiler PR must remain draft until actual executable gates pass.
+
+## Additional Rust durability hardening (experimental)
+
+The Rust reference synchronizes WAL `everysec` in the background even when writes
+stop. `always` fsyncs before a successful acknowledgment; `everysec` can lose
+recently accepted writes after power failure. Storage resource bounds and
+crash-recovery tests are tracked in [the benchmark and hardening guide](docs/BENCHMARK_AND_HARDENING.md).
+
+**Security:** The unauthenticated reference only binds numeric loopback IPs.
+No `--allow-remote` bypass is provided. This remains an experimental Redis
+subset, not a verified native Atto server or production-ready network service.

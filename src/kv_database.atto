@@ -98,11 +98,15 @@ define serial actor KvShard as
       s.active.insert_pre_reserved(rt take key,
         KvEntry(ack.lsn, None));
       s.last_applied_lsn = ack.lsn;
+      s.active_bytes = s.active.estimated_bytes();
     });
     return Ok(ack);
   end
 
   async get(Bytes key) -> Result<Option<Bytes>, StorageError> ::
+    // Do not let a read overtake a same-key write suspended at WAL fsync.
+    val ticket = await SerialCommandLane.acquire(self)?;
+    defer { ticket.release(); }
     // Clone immutable handles inside the critical loan. Disk await happens
     // outside the callback; no actor-state reference escapes.
     val view = self.handle_state(critical-read |s| -> {
@@ -115,12 +119,21 @@ define serial actor KvShard as
   end
 
   async rotate_memtable(u64 max_bytes) -> Result<Option<ImmutableMemtable>, StorageError> ::
+    // Background spill must be ordered after earlier WAL+apply commands.
+    // A checkpoint/global fence instead uses its privileged drained cut.
+    val ticket = await SerialCommandLane.acquire(self)?;
+    defer { ticket.release(); }
     val durable_lsn = await WalStorage.sync_through_last_admitted()?;
     return self.handle_state(critical-write |s| -> {
       if s.active_bytes < max_bytes then
         return Ok(None);
       fi
-      return Ok(Some(s.active.freeze_replace_through(durable_lsn)));
+      // The exact immutable generation remains readable in pending until
+      // its SST manifest has committed; account for fresh active map bytes.
+      val generation = s.active.freeze_replace_through(durable_lsn);
+      s.pending.push(rt share generation);
+      s.active_bytes = 0;
+      return Ok(Some(rt share generation));
     });
   end
 
