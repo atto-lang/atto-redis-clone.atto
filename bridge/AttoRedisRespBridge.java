@@ -108,6 +108,8 @@ public final class AttoRedisRespBridge {
             throw new IOException("Atto guest IPC response exceeds bound");
         }
 
+        boolean available() { return !closed.get() && process.isAlive(); }
+
         byte[] request(String opcode, byte[] key, byte[] value) throws IOException {
             if (closed.get() || !process.isAlive()) throw new IOException("Atto guest unavailable");
             Future<byte[]> pending = ordered.submit(() -> {
@@ -252,6 +254,10 @@ public final class AttoRedisRespBridge {
                 String op;
                 try { op = command(args.get(0)); }
                 catch (ClientFault bad) { output.write(ERROR_FRAME); return; }
+                if (!guest.available()) {
+                    output.write("-ERR Atto guest unavailable\r\n".getBytes(StandardCharsets.US_ASCII));
+                    return;
+                }
                 byte[] result;
                 if (op.equals("PING") && args.size() == 1) {
                     result = "+PONG\r\n".getBytes(StandardCharsets.US_ASCII);
