@@ -2,6 +2,16 @@
 
 This repository has **AttoLang actor source targets** and a **Rust-only executable reference**. Do not add Python implementations, Python tests or Python CI.
 
+## Real Atto guest milestone (not a native Redis server)
+
+Small reviewed `.atto` guest fixtures have now executed on actual compilers:
+
+- Java/Truffle: one-key LSN/tombstone behavior and scoped async text filesystem round trip, **2/2 guest JUnit tests passed** ([CI](https://github.com/voxletra/voxletra-e2e/actions/runs/43043693979)).
+- LLVM: a scalar LSN fixture compiled to LLVM IR, linked to a native executable and returned **42** ([CI](https://github.com/voxletra/voxletra-e2e/actions/runs/43044447246)).
+- Rust infrastructure: **18/18 tests passed**, including 3 absence/tamper protections for the real-guest execution gate ([CI](https://github.com/voxletra/voxletra-e2e/actions/runs/43042975460)).
+
+These results use pinned private compiler snapshots, not the current full compiler source heads; the full `src/*.atto` Redis server remains an uncompiled contract. Binary WAL fsync, native Atto RESP2 networking, Graal Native Image, and Atto/Rust performance are NOT_EXECUTED. Exact receipts and blockers: [native vertical-slice evidence](docs/NATIVE_VERTICAL_SLICE.md).
+
 ## Rust reference (std-only, Rust 1.85+, Unix)
 
     cargo test --manifest-path rust/Cargo.toml --offline

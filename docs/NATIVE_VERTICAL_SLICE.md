@@ -24,8 +24,7 @@ The Java/GraalVM integration lives in
 It mirrors the **identical** checked-in source Git blobs, then uses
 `LinkedProgramRunner.validate` and `LinkedProgramRunner.run` for real guest
 execution. It tests `fs_roundtrip.atto` only with a substituted scoped temp path
-and explicit READ/WRITE permissions. Full JDK 25/Maven execution must be
-performed and logged; until then all new guest tests are `NOT_EXECUTED`.
+and explicit READ/WRITE permissions. Actual real Java/Truffle guest execution PASSED on a pinned private JDK 21 compiler carrier (2/2 JUnit tests); see receipt below. The latest Java compiler source PR head and JDK 25 remain NOT_EXECUTED.
 
 ### Commands on an authorized, pinned Java checkout
 
@@ -60,9 +59,17 @@ cargo run --offline --manifest-path rust/Cargo.toml --bin verify_guest -- \
   --runner /absolute/llvm-checkout/scripts/compile-aot.sh
 ~~~
 
-An LLVM scalar exit-42 guest run does **not** certify actors, network I/O,
-filesystem durability, or cross-backend Redis parity. The LLVM compiler may
-still reject native .atto until source-extension admission is implemented.
+A selected LLVM compiler snapshot accepted this .atto scalar source, generated IR, linked with Clang and executed a real native binary with exit 42 (receipt below). The latest full LLVM source head and Redis actors, network I/O and durability are NOT_CERTIFIED.
+
+## Verified guest execution receipts — 2026-11-11
+
+These are **real guest executions**, not host-language emulation.
+
+- **Java/Truffle:** the one-key LSN/tombstone and scoped filesystem .atto guest fixtures passed **2/2 JUnit tests**, zero skipped, Maven BUILD SUCCESS, Temurin JDK 21. [Executed run](https://github.com/voxletra/voxletra-e2e/actions/runs/43043693979), job 130601925985; carrier commit `aeb659e6ec90fe4cc3b568296936583b682c15e8`, tree `593f849ff51613bb1bacc61b5d993f630b81b4c1`. Source fixture Git blobs were checked. The compiler source was the independently pinned private snapshot marker `053b76b96ab65e560c21efbaa609fc8584e27868` plus two reviewed modifications, NOT the current Java PR #2882 compiler head.
+- **LLVM:** exact scalar guest source blob `d20a410d4ce9bd27626b675437535e808692f0f5` compiled through a pinned, selected 61-entry LLVM source subset, emitted LLVM IR, linked with Clang and executed with exit code **42** and empty stdout. [Executed run](https://github.com/voxletra/voxletra-e2e/actions/runs/43044447246), job 130604557933; carrier commit `ceec9c41941610d8b0d540549f0baaaf181f25c4`, tree `00b3d6b9cd60825423d4ba22179b88cd0305e76e`. Test-only CMake configuration differs from the original; full latest LLVM HEAD is NOT_CERTIFIED.
+- **Rust:** 18/18 Rust tests including 3 fail-closed compiler-admission checks passed with strict Clippy on exact Redis PR source tree `9fce696f723296a5fe4fb5237a70df3f5045d51e`. [Executed run](https://github.com/voxletra/voxletra-e2e/actions/runs/43042975460). Rust checks alone do not certify the Atto guest.
+
+**NOT_EXECUTED:** full Redis Atto actors, binary WAL append/fsync, recovery from process crash in Atto, RESP2 server and actual Atto-versus-Rust performance. Neither the Java one-key memory test nor LLVM scalar exit 42 establishes five-backend Redis parity.
 
 ## Native blocking requirements
 
