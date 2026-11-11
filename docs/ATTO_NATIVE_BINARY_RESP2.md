@@ -36,10 +36,16 @@ or over-budget frames and closes the sole connection.
   Source manifest and changed files checked with Git blob hashes.
   Extra Java host contract 7/7 checks used a mock backend and **must not
   be presented as Atto execution**.
-- [Extended regression run #43104761172](https://github.com/voxletra/voxletra-e2e/actions/runs/43104761172)
-  adds tests for a 1024-byte binary bulk, distinct binary/empty keys, negative
-  bulk length and bad trailer. **Pending** at documentation creation; do not
-  state 11/11 until its exact-head receipt is complete.
+- [Extended exact-head private run #43105033703](https://github.com/voxletra/voxletra-e2e/actions/runs/43105033703),
+  private carrier commit `fa79d4611a0df35190f982b53c4031c8d9c7a6fd`:
+  **11/11 actual compiler + Truffle JUnit guest tests passed**, including
+  **6/6 binary RESP2 actor tests**, zero skipped/errors/failures.
+  The extra two executed tests cover a 1024-byte binary bulk, empty/distinct
+  binary keys, negative bulk length and bad trailer.
+  JUnit test source Git blob `26e584519cdc20c95000ab82feab8abfb68ab374`.
+  Real Atto source blob remains `6af96f78497268bac71e52b55dfa085ac6cd35ab`.
+  The separate **7/7 standalone Java NIO tests** used a mock actor and
+  were explicitly not counted toward real Atto assertions.
 
 ## Production and performance exclusions
 
