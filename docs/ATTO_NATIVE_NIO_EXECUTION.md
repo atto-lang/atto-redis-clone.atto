@@ -49,9 +49,14 @@ summarized with median throughput and every response verified.
 |---|---:|---:|---:|
 | [#43105313706](https://github.com/voxletra/voxletra-e2e/actions/runs/43105313706) | 1,347.7 ops/sec | not tested | 4,021.4 ops/sec |
 | [#43107347337](https://github.com/voxletra/voxletra-e2e/actions/runs/43107347337) | 989.5 ops/sec | **1,117.0 ops/sec** | 4,146.5 ops/sec |
+| [#43107906718](https://github.com/voxletra/voxletra-e2e/actions/runs/43107906718) | 1,356.0 ops/sec | **1,614.5 ops/sec** | 4,958.1 ops/sec |
 
-On the single **same-runner A/B run**, compact mailbox dispatch improved
-the median by 12.9% (ratio 1.1289). The absolute Atto medians differed
+Two separate **same-runner A/B runs** showed compact mailbox gains of
+12.9% (ratio 1.1289) and 19.1% (ratio 1.1906), respectively. In the latest
+run, the checked client also deleted the remaining live keys after each trial;
+`checks=1598` counts 200 warmup + 1,000 measured + 398 verified cleanup
+requests, and cleanup is excluded from timed throughput. These runs are
+observations, not statistical proof of a fixed speedup. The absolute Atto medians differed
 across runners/runs: do not claim the language has a fixed speedup or infer
 confidence intervals from five trials. A direct Rust-versus-Atto language
 performance claim is **not justified** until persistence and concurrency
