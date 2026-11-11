@@ -2,16 +2,16 @@
 //! A small subset, not full Redis compatibility.
 use crate::Engine;
 use std::io::{self, BufReader, Read, Write};
-use std::net::{TcpListener,TcpStream};
+use std::net::{SocketAddr,TcpListener,TcpStream};
 use std::sync::{Arc,atomic::{AtomicUsize,Ordering}};
 use std::thread;
 use std::time::Duration;
 const MAX_ARGS: usize=16;
+const MAX_BULK_BYTES: usize=4 * 1024 * 1024;
+const MAX_REQUEST_BYTES: usize=8 * 1024 * 1024;
+const MAX_COMMAND_BYTES: usize=32;
 const MAX_LINE: usize=128;
 const MAX_CONNECTIONS: usize=32;
-// Limits bound parser allocations even when the storage engine allows larger values.
-const MAX_NETWORK_BULK: usize=4*1024*1024;
-const MAX_REQUEST_BYTES: usize=8*1024*1024;
 fn bad(s:&str)->io::Error { io::Error::new(io::ErrorKind::InvalidData,s) }
 fn line(r:&mut BufReader<TcpStream>)->io::Result<Option<Vec<u8>>> {
     let mut v=Vec::new();
@@ -31,23 +31,32 @@ fn count(v:&[u8])->io::Result<usize>{
     std::str::from_utf8(v).map_err(|_|bad("bad length"))?
         .parse().map_err(|_|bad("length overflow"))
 }
-fn command(r:&mut BufReader<TcpStream>,max_key:usize,max_value:usize)->io::Result<Option<Vec<Vec<u8>>>>{
+// Cumulative budget is checked before reading or allocating the next body.
+fn charge_request_bytes(consumed:usize,next:usize)->io::Result<usize>{
+    let amount=consumed.checked_add(next)
+        .ok_or_else(||bad("request length overflow"))?;
+    if amount>MAX_REQUEST_BYTES{return Err(bad("oversized request"));}
+    Ok(amount)
+}
+fn command(r:&mut BufReader<TcpStream>,max_bulk:usize)->io::Result<Option<Vec<Vec<u8>>>>{
     let Some(h)=line(r)? else{return Ok(None)};
     if h.first()!=Some(&b'*'){return Err(bad("expected array"));}
     let n=count(&h[1..])?;
     if !(1..=MAX_ARGS).contains(&n){return Err(bad("argument count"));}
-    let mut args:Vec<Vec<u8>>=Vec::with_capacity(n);
-    let mut total=0usize;
-    for index in 0..n{
+    let mut args=Vec::with_capacity(n);
+    let mut request_bytes=h.len()+2; // array header CRLF
+    for i in 0..n{
         let Some(b)=line(r)? else{return Err(bad("truncated bulk"))};
         if b.first()!=Some(&b'$'){return Err(bad("expected bulk"));}
         let size=count(&b[1..])?;
-        let cap=if index==0 {64} else if index==2 && args[0].eq_ignore_ascii_case(b"SET")
-            || index==1 && (args[0].eq_ignore_ascii_case(b"PING") || args[0].eq_ignore_ascii_case(b"ECHO")) {
-            max_value.min(MAX_NETWORK_BULK)
-        } else {max_key.min(MAX_NETWORK_BULK)};
-        total=total.checked_add(size).ok_or_else(||bad("request length overflow"))?;
-        if size>cap || total>MAX_REQUEST_BYTES{return Err(bad("oversized request"));}
+        // Reject before any allocation or read of the declared body.
+        if i==0 && size>MAX_COMMAND_BYTES{return Err(bad("command name too long"));}
+        if size>max_bulk || size>MAX_BULK_BYTES{return Err(bad("oversized bulk"));}
+        let frame_bytes=b.len().checked_add(2)
+            .and_then(|x|x.checked_add(size))
+            .and_then(|x|x.checked_add(2))
+            .ok_or_else(||bad("request length overflow"))?;
+        request_bytes=charge_request_bytes(request_bytes,frame_bytes)?;
         let mut v=vec![0;size];r.read_exact(&mut v)?;
         let mut crlf=[0;2];r.read_exact(&mut crlf)?;
         if crlf!=*b"\r\n"{return Err(bad("bad trailer"));}
@@ -66,9 +75,9 @@ pub fn serve_connection(stream:TcpStream,engine:Arc<Engine>)->io::Result<()>{
     let mut reader=BufReader::new(stream.try_clone()?);
     let mut writer=stream;
     let cfg=engine.config();
-    // Enforce argument-position-specific limits before allocating a bulk body.
+    let max=cfg.max_key_bytes.max(cfg.max_value_bytes);
     loop{
-        let args=match command(&mut reader,cfg.max_key_bytes,cfg.max_value_bytes){
+        let args=match command(&mut reader,max){
             Ok(Some(x))=>x,Ok(None)=>return Ok(()),
             Err(_)=>{writer.write_all(b"-ERR invalid RESP request\r\n")?;return Ok(());}
         };
@@ -95,8 +104,19 @@ pub fn serve_connection(stream:TcpStream,engine:Arc<Engine>)->io::Result<()>{
         writer.write_all(&response)?;
     }
 }
+struct ConnectionPermit(Arc<AtomicUsize>);
+impl Drop for ConnectionPermit {
+    fn drop(&mut self) { self.0.fetch_sub(1,Ordering::AcqRel); }
+}
 pub fn serve(addr:&str,engine:Arc<Engine>)->io::Result<()>{
-    let listener=TcpListener::bind(addr)?;
+    // Enforce the security boundary on the library entry point too, not
+    // only in the CLI. Bind only after validating the numeric loopback IP.
+    let endpoint:SocketAddr=addr.parse().map_err(|_|bad("numeric socket address required"))?;
+    if !endpoint.ip().is_loopback() {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied,
+            "unauthenticated remote listener forbidden; use loopback"));
+    }
+    let listener=TcpListener::bind(endpoint)?;
     let active=Arc::new(AtomicUsize::new(0));
     for incoming in listener.incoming(){
         let mut stream=incoming?;
@@ -104,11 +124,51 @@ pub fn serve(addr:&str,engine:Arc<Engine>)->io::Result<()>{
             active.fetch_sub(1,Ordering::AcqRel);
             let _=stream.write_all(b"-ERR too many clients\r\n");continue;
         }
-        let count=Arc::clone(&active);let db=Arc::clone(&engine);
-        thread::spawn(move||{
+        let permit=ConnectionPermit(Arc::clone(&active));
+        let db=Arc::clone(&engine);
+        // A handler panic must not leak a client slot. Failed spawn drops its
+        // captured permit rather than panicking the listener.
+        let _=thread::Builder::new().spawn(move||{
+            let _permit=permit;
             let _=serve_connection(stream,db);
-            count.fetch_sub(1,Ordering::AcqRel);
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod protocol_bounds_tests {
+    use super::*;
+    use std::net::TcpListener;
+
+    fn make_pair() -> (TcpStream, TcpStream) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let sender = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (receiver, _) = listener.accept().unwrap();
+        receiver.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        (sender, receiver)
+    }
+
+    #[test]
+    fn rejects_oversized_bulk_before_reading_payload() {
+        let (mut sender, receiver) = make_pair();
+        sender.write_all(b"*2\r\n$4\r\nECHO\r\n$4194305\r\n").unwrap();
+        let err = command(&mut BufReader::new(receiver), 64 * 1024 * 1024).unwrap_err();
+        assert!(err.to_string().contains("oversized bulk"), "{err}");
+    }
+
+    #[test]
+    fn rejects_oversized_command_name_before_reading_payload() {
+        let (mut sender, receiver) = make_pair();
+        sender.write_all(b"*1\r\n$33\r\n").unwrap();
+        let err = command(&mut BufReader::new(receiver), 64 * 1024 * 1024).unwrap_err();
+        assert!(err.to_string().contains("command name too long"), "{err}");
+    }
+
+    #[test]
+    fn request_budget_accounts_for_aggregate_bulk_overhead() {
+        let consumed=charge_request_bytes(0,MAX_BULK_BYTES+24).unwrap();
+        let overflow=charge_request_bytes(consumed,MAX_BULK_BYTES+24).unwrap_err();
+        assert_eq!(overflow.to_string(),"oversized request");
+    }
 }

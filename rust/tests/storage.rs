@@ -132,3 +132,26 @@ fn atto_audit_contracts_in_source_not_guest_execution() {
     assert!(!cp.contains("fence_guard.release()"));
     assert!(cp.contains("publish_manifest_and_fsync_parent"));
 }
+
+
+#[test]
+fn cli_rejects_remote_host_before_opening_storage() {
+    let dir=Temp::new();
+    let path=dir.0.join("must-not-be-created");
+    let result=std::process::Command::new(env!("CARGO_BIN_EXE_atto-redis"))
+        .args(["--data-dir", path.to_str().unwrap(), "--host", "0.0.0.0"])
+        .output().unwrap();
+    assert!(!result.status.success(), "unauthenticated remote bind must fail");
+    assert!(String::from_utf8_lossy(&result.stderr).contains("loopback"));
+    assert!(!path.exists(), "forbidden remote address cannot create a store");
+}
+
+
+#[test]
+fn rust_library_server_rejects_remote_interface_before_binding() {
+    let dir=Temp::new();
+    let db=Arc::new(Engine::open(&dir.0,cfg()).unwrap());
+    let result=server::serve("0.0.0.0:0", db);
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::PermissionDenied);
+}
