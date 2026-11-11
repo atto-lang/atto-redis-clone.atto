@@ -17,4 +17,4 @@ jobs:
       - name: Compile Python reference
         run: PYTHONPATH=reference python -m compileall -q reference
       - name: Execute storage and TCP tests
-        run: PYTHONPATH=reference python -m unittest discover -s reference/tests -v
+        run: PYTHONWARNINGS=error::ResourceWarning PYTHONPATH=reference python -m unittest discover -s reference/tests -v

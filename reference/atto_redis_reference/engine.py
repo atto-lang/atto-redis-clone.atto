@@ -142,12 +142,18 @@ class Wal:
         except OSError as exc:
             self.lease.close()
             raise StoreError("data directory already has an active writer") from exc
-        path.touch(exist_ok=True)
-        sync_directory(path.parent)
-        self.recovered = list(scan_frames(path, WAL_MAGIC, self.max_frame, salvage_tail=True))
-        if self.recovered:
-            self.seq = self.recovered[-1][1]
-        self.fh = path.open("ab", buffering=0)
+        try:
+            path.touch(exist_ok=True)
+            sync_directory(path.parent)
+            self.recovered = list(
+                scan_frames(path, WAL_MAGIC, self.max_frame, salvage_tail=True)
+            )
+            if self.recovered:
+                self.seq = self.recovered[-1][1]
+            self.fh = path.open("ab", buffering=0)
+        except BaseException:
+            self.lease.close()
+            raise
 
     def append(self, key: bytes, value: Optional[bytes]) -> int:
         with self.lock:
@@ -183,12 +189,16 @@ class Wal:
 
     def close(self) -> None:
         with self.lock:
-            if not self.fh.closed:
-                self.fh.flush()
-                # 'everysec' policy becomes durable on graceful shutdown.
-                os.fsync(self.fh.fileno())
-                self.fh.close()
-            self.lease.close()
+            try:
+                if not self.fh.closed:
+                    try:
+                        self.fh.flush()
+                        # 'everysec' becomes durable on graceful shutdown.
+                        os.fsync(self.fh.fileno())
+                    finally:
+                        self.fh.close()
+            finally:
+                self.lease.close()
 
 
 @dataclass

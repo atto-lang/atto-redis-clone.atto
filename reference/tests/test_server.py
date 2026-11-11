@@ -40,6 +40,31 @@ class RespTests(unittest.TestCase):
                     db.close()
         asyncio.run(run())
 
+    def test_periodic_maintenance_prunes_wal(self):
+        async def run():
+            from pathlib import Path
+            from contextlib import suppress
+            from atto_redis_reference.server import maintenance_loop
+            with tempfile.TemporaryDirectory() as d:
+                db = Engine(d, Config(shards=2))
+                db.set(b"one", b"two")
+                wal = Path(d) / "WAL.log"
+                self.assertGreater(wal.stat().st_size, 0)
+                task = asyncio.create_task(maintenance_loop(db, 0.01, 10))
+                try:
+                    for _ in range(100):
+                        if wal.stat().st_size == 0:
+                            break
+                        await asyncio.sleep(0.01)
+                    self.assertEqual(wal.stat().st_size, 0)
+                    self.assertEqual(db.get(b"one"), b"two")
+                finally:
+                    task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await task
+                    db.close()
+        asyncio.run(run())
+
     def test_invalid_framing(self):
         async def run():
             with tempfile.TemporaryDirectory() as d:

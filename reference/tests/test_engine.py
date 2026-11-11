@@ -158,6 +158,35 @@ class EngineTests(unittest.TestCase):
             r = Engine(d, Config(shards=2))
             r.close()
 
+    def test_corrupted_segment_rejected_at_restart(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Config(shards=1, spill_bytes=1)
+            e = Engine(d, cfg)
+            e.set(b"key", b"value")
+            e.checkpoint()
+            e.close()
+            manifest = json.loads((Path(d) / "MANIFEST.json").read_text())
+            p = Path(d) / manifest["segments"][0][0]
+            data = bytearray(p.read_bytes())
+            data[-1] ^= 0x01
+            p.write_bytes(data)
+            with self.assertRaises(CorruptData):
+                Engine(d, cfg)
+
+    def test_unsafe_manifest_path_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Config(shards=1, spill_bytes=1)
+            e = Engine(d, cfg)
+            e.set(b"k", b"v")
+            e.checkpoint()
+            e.close()
+            p = Path(d) / "MANIFEST.json"
+            manifest = json.loads(p.read_text())
+            manifest["segments"][0] = ["../../outside.sst"]
+            p.write_text(json.dumps(manifest))
+            with self.assertRaises(CorruptData):
+                Engine(d, cfg)
+
     def test_limits(self):
         with tempfile.TemporaryDirectory() as d:
             e = Engine(d, Config(shards=2, max_key_bytes=3, max_value_bytes=3))
