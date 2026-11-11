@@ -1,5 +1,24 @@
 # Atto Redis Clone
 
+## M1.5 PROVED: real Atto actor owns Redis KV over TCP
+
+A spawned **AttoLang actor** now owns the in-memory `Map<string,string>`,
+accepts mailbox SET/GET/DEL operations and returns results through its Atto
+output stream. The JDK-only RESP2 transport forwards the binary-safe protocol,
+without implementing KV storage. This is an executable actor guest, not just
+a proposed architecture. The [funded exact-blob integration
+run #43063897766](https://github.com/voxletra/voxletra-e2e/actions/runs/43063897766)
+passed 4 real Java/Truffle guest tests (0 failures/skips) and a pipelined
+binary RESP2 TCP test against that actual actor implementation.
+
+Use [actor guest launch instructions](docs/ACTOR_KV_M1_5.md):
+`bash scripts/run-atto-redis-actor-loopback.sh /absolute/compiler-checkout 6380`.
+
+**Development-only and ephemeral**: this actor variant uses legacy direct
+mutable actor fields (not sealed state loans); Atto-native TCP,
+WAL/fsync/recovery, durable storage and native Atto/Rust benchmarking remain
+unimplemented. Do not expose this unauthenticated loopback server publicly.
+
 ## M1 IMPLEMENTED: actual AttoLang Redis-like TCP execution (ephemeral)
 
 A real `.atto` guest now owns in-memory SET/GET/DEL state and handles
