@@ -6,20 +6,20 @@
 // Binary values/keys use List<int> (0..255); owned Bytes still needs a runtime type.
 
 define class KvCommand as
-  final int kind;
-  final List<int> key;
-  final List<int> value;
+  final int kind = 0;
+  final List<int> key = [];
+  final List<int> value = [];
 end
 
 define class KvReply as
-  final int kind;
-  final List<int> value;
+  final int kind = 0;
+  final List<int> value = [];
 end
 
 define class KvEntry as
-  final List<int> key;
-  final List<int> value;
-  final bool live;
+  final List<int> key = [];
+  final List<int> value = [];
+  final bool live = false;
 end
 
 define class RespReader as
