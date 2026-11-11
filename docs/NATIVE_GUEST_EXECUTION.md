@@ -36,3 +36,13 @@ Therefore a complete in-Atto Redis RESP server, persisted Atto WAL and SST execu
 Java compiler PR #2881 added strict scalar Map domain checks, direct-call-only mutator gates, writable local/actor owner admission and compiler rejects for captured mutator values and const writes. Run: https://github.com/voxletra/voxletra-e2e/actions/runs/43041735134 (25/25 compiler-backed JUnit cases). Hardened TypeChecker Git blob 672360990f0d57ac0cbbb847f47087d5e69625e4. This does not certify all mutable alias / borrow / cross-actor transport graphs.
 
 Rust server security adds 4 MiB/bulk and 8 MiB/request preallocation checks, 32-byte command cap, panic-safe connection permits and numeric loopback-only bind through both CLI and library. This is reference security work; NOT an executable in-Atto RESP service. Current formatter check reports preexisting Rust formatting drift and is nonblocking.
+
+## Atomic missing-key guest milestone — 2026-11-11
+
+Native AttoLang guest code now executes `Map<K,V>.get_optional(key): Option<V>` on the Java/GraalVM compiler candidate. The implementation performs one synchronized runtime lookup, never a racy separate contains+index read; the compiler rejects unsupported key/value domains and first-class extraction of that Map method. **This is native Atto guest execution, not a Rust surrogate.**
+
+`src/redis_actor_guest.atto` now issues an initial GET on a missing key, SET, GET, DELETE and a second missing-key GET, returning exactly `nil|set|get|delete|nil`. The guest owns its in-memory scalar Map; it does **not** perform socket I/O or durable WAL work. Compiler candidate: [Java PR #2881](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2881) at `dd0fba9497b32d61c56bcc5231aa5684d6b575f0`; Redis actor source blob: `2b0d7e43fee4a06e6c54f7129501674fd11095a7`.
+
+[Executed private exact-blob Java/GraalVM CI run #43055373575](https://github.com/voxletra/voxletra-e2e/actions/runs/43055373575) passed **27/27 real compiler/typechecker/Truffle guest JUnit tests**, with zero skipped. Carrier SHA: `ee4afb302b946cb38f1d528715b436caf3502a33`, tree `01e06c40e17574c7ba9bf5265434d48a6bf9e259`. The 362 pinned source manifest entries and four changed compiler/JUnit blobs were independently verified; this was an existing approved private mirror and involved no source-org Actions job admission.
+
+**Not yet executed:** full `kv_database.atto` and `checkpoint.atto` compilation, native `std/net` TCP listener, RESP2 over Atto sockets, WAL/SST fsync and crash replay, AOT/multi-backend parity, and Atto/Rust throughput. The Redis PR and compiler PR must remain draft until actual executable gates pass.
