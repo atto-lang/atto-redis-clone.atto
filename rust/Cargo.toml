@@ -1,0 +1,17 @@
+[package]
+name = "atto-redis-clone"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Rust storage and RESP reference for AttoLang Redis clone"
+license = "MIT"
+
+[lib]
+name = "atto_redis_clone"
+path = "src/lib.rs"
+
+[[bin]]
+name = "atto-redis"
+path = "src/main.rs"
+
+[dependencies]
