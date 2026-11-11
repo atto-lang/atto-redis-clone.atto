@@ -21,33 +21,13 @@ it has NO WAL/fsync/restart durability, no Atto-native listener, no auth/TLS,
 no supervised actor storage, and no valid native Atto-vs-Rust benchmark.
 The Rust reference remains the only durable RESP/WAL implementation.
 
+## Real Atto guest execution (not just Rust)
+
+A compiler candidate actually executed source files from this repository: src/redis_kv_smoke.atto runs scalar-map SET/GET/DEL returning 42; src/redis_actor_guest.atto spawns a real Atto actor and emits set|get|delete. See [successful native Truffle guest CI](https://github.com/voxletra/voxletra-e2e/actions/runs/43039057038) and [Java compiler PR #2881](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2881).
+
+The proposed full actor storage/checkpoint implementation remains NOT_COMPILED and native Atto TCP listener and WAL/SST interfaces remain NOT_IMPLEMENTED. There is no Atto-versus-Rust server throughput ratio. Exact source identities and missing gates are documented in docs/NATIVE_GUEST_EXECUTION.md.
+
 This repository has **AttoLang actor source targets** and a **Rust-only executable reference**. Do not add Python implementations, Python tests or Python CI.
-
-## Real Atto guest milestone (not a native Redis server)
-
-Small reviewed `.atto` guest fixtures have now executed on actual compilers:
-
-- Java/Truffle: one-key LSN/tombstone behavior and scoped async text filesystem round trip, **2/2 guest JUnit tests passed** ([CI](https://github.com/voxletra/voxletra-e2e/actions/runs/43043693979)).
-- LLVM: a scalar LSN fixture compiled to LLVM IR, linked to a native executable and returned **42** ([CI](https://github.com/voxletra/voxletra-e2e/actions/runs/43044447246)).
-- Rust infrastructure: **18/18 tests passed**, including 3 absence/tamper protections for the real-guest execution gate ([CI](https://github.com/voxletra/voxletra-e2e/actions/runs/43042975460)).
-
-These results use pinned private compiler snapshots, not the current full compiler source heads; the full `src/*.atto` Redis server remains an uncompiled contract. Binary WAL fsync, native Atto RESP2 networking, Graal Native Image, and Atto/Rust performance are NOT_EXECUTED. Exact receipts and blockers: [native vertical-slice evidence](docs/NATIVE_VERTICAL_SLICE.md).
-
-## Redis actor supervision (design target, not native-executed)
-
-[Supervision and crash-recovery contract](docs/SUPERVISION_AND_RECOVERY.md)
-now specifies a root supervisor, a one-for-all storage supervisor for WAL and
-all shards, a network supervisor and a maintenance supervisor. The storage
-generation uses fail-closed epoch admission: immutable `KvDatabase` routing
-snapshots hold `storage_epoch`, and SET/GET/DELETE hold admission guards
-through suspended WAL and shard operations. Root failure is **process
-fail-stop**, not a self-restart; corruption and restart storms stay fenced.
-
-`src/redis_supervision.atto` is **NOT_COMPILED** proposed actor/runtime
-source. `rust/tests/supervision_contract.rs` executes only a Rust state-machine
-model of fenced recovery, stale notices and restart limits. Neither is evidence
-that Atto's `Supervisor` base, epoch admission, replay, network or durable
-recovery actually runs. The native-guest and storage runtime gates remain open.
 
 ## Rust reference (std-only, Rust 1.85+, Unix)
 
@@ -68,10 +48,7 @@ The driver performs 50% SET, 40% GET, 10% DEL (fixed 64-byte values, 1,024 key w
 
 ### Layout
 
-- src/kv_database.atto: sealed actor-owned shard target, WAL and per-generation command admission
-- src/redis_supervision.atto: root/storage/network/maintenance supervisor target (NOT_COMPILED)
-- docs/SUPERVISION_AND_RECOVERY.md: failure policy, epoch fencing and native acceptance gates
-- rust/tests/supervision_contract.rs: Rust-only executable model; NOT an Atto compiler test
+- src/kv_database.atto: sealed actor-owned shard target, WAL and command admission ordering
 - src/checkpoint.atto: cross-shard durable manifest fence
 - rust/src/lib.rs: Rust reference storage engine
 - rust/src/server.rs: bounded RESP2 TCP handler
@@ -79,13 +56,59 @@ The driver performs 50% SET, 40% GET, 10% DEL (fixed 64-byte values, 1,024 key w
 - rust/tests/storage.rs: executable Rust correctness and protocol tests
 - docs/ACTOR_RUNTIME_GATES.md: native execution blockers and acceptance tests
 
-
-## Audit hardening and repeatable measurements
-
-- Rust RESP2 parsing caps concurrent clients at 32, each request at 8 MiB and each bulk at 4 MiB; key/value limits are checked before allocation. Non-loopback listening is rejected unless the operator explicitly passes `--allow-remote` (unsafe without authentication and TLS).
-- Rust WAL `everysec` mode is now independently synchronized by the background worker even after writes stop; `always` still synchronizes each acknowledged write. Both are different durability contracts.
-- Rust recovery checks include complete corrupt WAL frames (fail closed), torn final WAL frames (truncate), exclusive database leases, concurrent writes, segment compaction, and real RESP2 binary frames.
-- Atto source is still a non-compiled contract. GET participates in the serial admission lane, frozen generations stay retained until their durable segment is installed, and active-map accounting is adjusted after deletion and rotation.
-- Run the identical `bench_resp` binary against both live native endpoints only. Until an Atto guest binary exists, Atto throughput and speed ratios remain **NOT_EXECUTED**. See [hardening and benchmark gates](docs/BENCHMARK_AND_HARDENING.md).
-
 Do not expose the reference server to untrusted networks or claim production Redis correctness.
+
+
+### Security and executable scope
+
+The actual Java/GraalVM compiler has executed the Atto scalar Map guest and actor-owned SET/GET/DELETE smoke. Hardened compiler gates and legacy actor guest passed 25 tests: https://github.com/voxletra/voxletra-e2e/actions/runs/43041735134 . Java compiler PR: https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2881 .
+
+The Rust RESP2 reference restricts commands to 32-byte names, bulk arguments to 4 MiB, aggregate request frames to 8 MiB, maximum 16 RESP arguments and 64 clients. Rust CLI and server library accept numeric **loopback IPs only**; a remote TCP listener without authentication/TLS is prohibited. This reference is NOT yet a native Atto Redis TCP server. For implemented-vs-proposed feature gates, see docs/ACTOR_RUNTIME_GATES.md and docs/NATIVE_GUEST_EXECUTION.md.
+
+## Atomic missing-key guest milestone — 2026-11-11
+
+Native AttoLang guest code now executes `Map<K,V>.get_optional(key): Option<V>` on the Java/GraalVM compiler candidate. The implementation performs one synchronized runtime lookup, never a racy separate contains+index read; the compiler rejects unsupported key/value domains and first-class extraction of that Map method. **This is native Atto guest execution, not a Rust surrogate.**
+
+`src/redis_actor_guest.atto` now issues an initial GET on a missing key, SET, GET, DELETE and a second missing-key GET, returning exactly `nil|set|get|delete|nil`. The guest owns its in-memory scalar Map; it does **not** perform socket I/O or durable WAL work. Compiler candidate: [Java PR #2881](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2881) at `dd0fba9497b32d61c56bcc5231aa5684d6b575f0`; Redis actor source blob: `2b0d7e43fee4a06e6c54f7129501674fd11095a7`.
+
+[Executed private exact-blob Java/GraalVM CI run #43055373575](https://github.com/voxletra/voxletra-e2e/actions/runs/43055373575) passed **27/27 real compiler/typechecker/Truffle guest JUnit tests**, with zero skipped. Carrier SHA: `ee4afb302b946cb38f1d528715b436caf3502a33`, tree `01e06c40e17574c7ba9bf5265434d48a6bf9e259`. The 362 pinned source manifest entries and four changed compiler/JUnit blobs were independently verified; this was an existing approved private mirror and involved no source-org Actions job admission.
+
+**Not yet executed:** full `kv_database.atto` and `checkpoint.atto` compilation, native `std/net` TCP listener, RESP2 over Atto sockets, WAL/SST fsync and crash replay, AOT/multi-backend parity, and Atto/Rust throughput. The Redis PR and compiler PR must remain draft until actual executable gates pass.
+
+## Additional Rust durability hardening (experimental)
+
+The Rust reference synchronizes WAL `everysec` in the background even when writes
+stop. `always` fsyncs before a successful acknowledgment; `everysec` can lose
+recently accepted writes after power failure. Storage resource bounds and
+crash-recovery tests are tracked in [the benchmark and hardening guide](docs/BENCHMARK_AND_HARDENING.md).
+
+**Security:** The unauthenticated reference only binds numeric loopback IPs.
+No `--allow-remote` bypass is provided. This remains an experimental Redis
+subset, not a verified native Atto server or production-ready network service.
+
+## Native Atto guest vertical slice (still not a Redis server)
+
+`guest/kv_cell.atto` and `guest/fs_roundtrip.atto` have been executed by
+a pinned Java/Truffle compiler snapshot; `guest/llvm_lsn_smoke.atto` has
+been compiled to a native LLVM executable with exit 42. These are focused
+guest milestones (one-key mutable cell, scoped text filesystem, scalar LSN),
+not a working durable Atto RESP listener. See
+[exact guest evidence and compiler limitations](docs/NATIVE_VERTICAL_SLICE.md).
+The Rust-only `verify_guest` gate fails closed when native compilers or
+verified source blobs are missing.
+
+## Supervised storage generation (proposed Atto runtime APIs)
+
+The Redis supervisor [contract](docs/SUPERVISION_AND_RECOVERY.md) adds a
+`RedisRootSupervisor` and storage, network and maintenance supervisors.
+Storage restart fences and drains a complete WAL/shard generation before
+durable replay. Old `KvDatabase` routing snapshots carry a generation
+epoch and must reject stale requests, including direct actor references.
+Root failure requires **process fail-stop**. Corrupt manifests/CRC and
+exhausted restart budgets stay fenced.
+
+`src/redis_supervision.atto` and its `StorageAdmission` APIs are
+**NOT_COMPILED** proposals. The 13 Rust supervision-model tests exercise
+transition logic but are **not** Atto runtime or crash/fault-injection proof.
+Do not claim native Redis actor/server readiness until the toolchains
+compile and execute the full storage + network APIs.

@@ -13,7 +13,7 @@ Rust has the executable storage engine and RESP2 frontend. AttoLang files under 
 5. Frozen memtables remain in pending until that exact SST generation is durably published. Rotate must clear active_bytes; delete must recompute it.
 6. Checkpoint order: fence writers, flush immutable generations, fsync SSTs, atomically write manifest, fsync directory, then prune WAL. A manifest publish must not race spill or compaction.
 7. After WAL success followed by in-memory allocation failure, stop/poison the shard and report ambiguous outcome, rather than silently losing a write.
-8. Network: bind loopback, no authentication, no TLS. Rust RESP2 parser limits to 8 MiB/request, 4 MiB/bulk, 32 connections. Rust storage values up to 64 MiB and keys up to 1 MiB. --allow-remote is unsafe without auth/TLS.
+8. Network: bind loopback, no authentication, no TLS. Rust RESP2 parser limits to 8 MiB/request, 4 MiB/bulk, 32 connections. Rust storage values up to 64 MiB and keys up to 1 MiB. Unauthenticated remote binding is forbidden, including via the library API.
 
 ## Fair performance comparison protocol
 
@@ -27,10 +27,9 @@ The reference's pending memtables and SST indexes consume resident memory. The c
 
 ~~~sh
 cargo test --manifest-path rust/Cargo.toml --all-targets
-cargo build --release --manifest-path rust/Cargo.toml --bin bench
-rust/target/release/bench --ops 500 --threads 1 --value-bytes 128 --fsync always --workload set
-rust/target/release/bench --ops 4000 --threads 1 --value-bytes 128 --fsync everysec --workload get
-rust/target/release/bench --ops 4000 --threads 8 --value-bytes 128 --fsync everysec --workload mixed
+cargo build --release --manifest-path rust/Cargo.toml --bin atto-redis --bin bench_resp
+# Start Rust reference on loopback in a separate terminal (see README).
+rust/target/release/bench_resp --rust 127.0.0.1:6379 --requests 10000
 ~~~
 
 The benchmark measures in-process Rust only. Atto native throughput remains NOT_EXECUTED until real backend guests compile and run. If source-org Actions runs fail before steps, use an exact-tree, per-blob-SHA-verified private mirror and distinguish carrier execution from original-source CI.
