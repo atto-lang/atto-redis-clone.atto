@@ -144,3 +144,13 @@ fn cli_rejects_remote_host_before_opening_storage() {
     assert!(String::from_utf8_lossy(&result.stderr).contains("loopback"));
     assert!(!path.exists(), "forbidden remote address cannot create a store");
 }
+
+
+#[test]
+fn rust_library_server_rejects_remote_interface_before_binding() {
+    let dir=Temp::new();
+    let db=Arc::new(Engine::open(&dir.0,cfg()).unwrap());
+    let result=server::serve("0.0.0.0:0", db);
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::PermissionDenied);
+}

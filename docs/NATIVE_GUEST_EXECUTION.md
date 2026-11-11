@@ -29,3 +29,10 @@ The full src/kv_database.atto was rejected by the actual Java parser at 7:16 (cl
 The Java backend document NATIVE_NETWORK_IO_AND_TRACING.md explicitly classifies source-level std/net nonblocking TCP listen/accept/read/write as NOT YET IMPLEMENTED. The existing JDK HTTP adapter is not a raw TCP RESP listener written in Atto.
 
 Therefore a complete in-Atto Redis RESP server, persisted Atto WAL and SST execution, and an identical-condition Atto-vs-Rust throughput comparison remain NOT_EXECUTED / NOT_MEASURED. Do not substitute this actor smoke for the server.
+
+
+### Subsequent compiler and Rust hardening — 2026-11-11
+
+Java compiler PR #2881 added strict scalar Map domain checks, direct-call-only mutator gates, writable local/actor owner admission and compiler rejects for captured mutator values and const writes. Run: https://github.com/voxletra/voxletra-e2e/actions/runs/43041735134 (25/25 compiler-backed JUnit cases). Hardened TypeChecker Git blob 672360990f0d57ac0cbbb847f47087d5e69625e4. This does not certify all mutable alias / borrow / cross-actor transport graphs.
+
+Rust server security adds 4 MiB/bulk and 8 MiB/request preallocation checks, 32-byte command cap, panic-safe connection permits and numeric loopback-only bind through both CLI and library. This is reference security work; NOT an executable in-Atto RESP service. Current formatter check reports preexisting Rust formatting drift and is nonblocking.

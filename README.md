@@ -36,3 +36,10 @@ The driver performs 50% SET, 40% GET, 10% DEL (fixed 64-byte values, 1,024 key w
 - docs/ACTOR_RUNTIME_GATES.md: native execution blockers and acceptance tests
 
 Do not expose the reference server to untrusted networks or claim production Redis correctness.
+
+
+### Security and executable scope
+
+The actual Java/GraalVM compiler has executed the Atto scalar Map guest and actor-owned SET/GET/DELETE smoke. Hardened compiler gates and legacy actor guest passed 25 tests: https://github.com/voxletra/voxletra-e2e/actions/runs/43041735134 . Java compiler PR: https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2881 .
+
+The Rust RESP2 reference restricts commands to 32-byte names, bulk arguments to 4 MiB, aggregate request frames to 8 MiB, maximum 16 RESP arguments and 64 clients. Rust CLI and server library accept numeric **loopback IPs only**; a remote TCP listener without authentication/TLS is prohibited. This reference is NOT yet a native Atto Redis TCP server. For implemented-vs-proposed feature gates, see docs/ACTOR_RUNTIME_GATES.md and docs/NATIVE_GUEST_EXECUTION.md.

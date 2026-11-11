@@ -2,7 +2,7 @@
 //! A small subset, not full Redis compatibility.
 use crate::Engine;
 use std::io::{self, BufReader, Read, Write};
-use std::net::{TcpListener,TcpStream};
+use std::net::{SocketAddr,TcpListener,TcpStream};
 use std::sync::{Arc,atomic::{AtomicUsize,Ordering}};
 use std::thread;
 use std::time::Duration;
@@ -109,7 +109,14 @@ impl Drop for ConnectionPermit {
     fn drop(&mut self) { self.0.fetch_sub(1,Ordering::AcqRel); }
 }
 pub fn serve(addr:&str,engine:Arc<Engine>)->io::Result<()>{
-    let listener=TcpListener::bind(addr)?;
+    // Enforce the security boundary on the library entry point too, not
+    // only in the CLI. Bind only after validating the numeric loopback IP.
+    let endpoint:SocketAddr=addr.parse().map_err(|_|bad("numeric socket address required"))?;
+    if !endpoint.ip().is_loopback() {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied,
+            "unauthenticated remote listener forbidden; use loopback"));
+    }
+    let listener=TcpListener::bind(endpoint)?;
     let active=Arc::new(AtomicUsize::new(0));
     for incoming in listener.incoming(){
         let mut stream=incoming?;
