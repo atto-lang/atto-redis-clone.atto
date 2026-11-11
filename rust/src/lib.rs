@@ -96,7 +96,14 @@ fn scan(path: &Path, magic: [u8;4], cfg: &Config, salvage: bool,
     loop {
         let offset = file.stream_position()?;
         let mut hdr = [0; HEADER];
-        let n = file.read(&mut hdr)?;
+        // read() may short-read on healthy files. Only an actual EOF
+        // indicates a torn frame header.
+        let mut n = 0;
+        while n < HEADER {
+            let read = file.read(&mut hdr[n..])?;
+            if read == 0 { break; }
+            n += read;
+        }
         if n == 0 { return Ok(()); }
         if n != HEADER {
             if salvage { file.set_len(offset)?; file.sync_all()?; return Ok(()); }
@@ -232,7 +239,8 @@ impl Manifest {
             if count > MAX_MANIFEST / 48 { return Err(invalid("too many segments")); }
             let mut names = Vec::with_capacity(count);
             for _ in 0..count {
-                let name = std::str::from_utf8(r.take(r.u16()? as usize)?).map_err(|_|invalid("segment name UTF8"))?.to_string();
+                let name_len = r.u16()? as usize;
+                let name = std::str::from_utf8(r.take(name_len)?).map_err(|_|invalid("segment name UTF8"))?.to_string();
                 if !segment_filename(idx, &name) || names.contains(&name) { return Err(invalid("invalid manifest segment")); }
                 names.push(name);
             }
@@ -282,6 +290,7 @@ impl Wal {
     }
     fn prune(&mut self, through: u64, cfg: &Config) -> io::Result<()> {
         if self.poisoned { return Err(invalid("WAL poisoned")); }
+        // A global ordering gate is held by the caller across prune/append.
         let temp = self.path.with_extension("tmp");
         let work = (|| {
             let mut out = File::create(&temp)?;
@@ -393,6 +402,7 @@ fn flush_worker(shared: Arc<Shared>, rx: mpsc::Receiver<Job>) {
     }
 }
 impl Engine {
+    pub fn config(&self) -> Config { self.shared.cfg.clone() }
     pub fn open(path: impl AsRef<Path>, cfg: Config) -> io::Result<Self> {
         cfg.validate()?;
         let dir=path.as_ref().to_path_buf(); fs::create_dir_all(&dir)?;
