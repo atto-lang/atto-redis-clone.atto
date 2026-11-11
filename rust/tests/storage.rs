@@ -118,7 +118,8 @@ fn resp2_tcp_binary_pipeline() {
 fn atto_audit_contracts_in_source_not_guest_execution() {
     let kv = include_str!("../../src/kv_database.atto");
     let cp = include_str!("../../src/checkpoint.atto");
-    assert!(kv.contains("SerialCommandLane.acquire(self)"));
+    assert_eq!(kv.matches("SerialCommandLane.acquire(self)").count(), 4,
+        "SET, DEL, GET, and spill rotation must share one FIFO command lane");
     assert!(kv.contains("read_newest_owned"));
     assert!(kv.contains("insert_pre_reserved"));
     assert!(kv.contains("reserve_capacity"));

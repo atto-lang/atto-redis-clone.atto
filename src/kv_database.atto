@@ -119,6 +119,10 @@ define serial actor KvShard as
   end
 
   async rotate_memtable(u64 max_bytes) -> Result<Option<ImmutableMemtable>, StorageError> ::
+    // Background spill must be ordered after earlier WAL+apply commands.
+    // A checkpoint/global fence instead uses its privileged drained cut.
+    val ticket = await SerialCommandLane.acquire(self)?;
+    defer { ticket.release(); }
     val durable_lsn = await WalStorage.sync_through_last_admitted()?;
     return self.handle_state(critical-write |s| -> {
       if s.active_bytes < max_bytes then
