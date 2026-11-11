@@ -75,3 +75,19 @@ not a working durable Atto RESP listener. See
 [exact guest evidence and compiler limitations](docs/NATIVE_VERTICAL_SLICE.md).
 The Rust-only `verify_guest` gate fails closed when native compilers or
 verified source blobs are missing.
+
+## Supervised storage generation (proposed Atto runtime APIs)
+
+The Redis supervisor [contract](docs/SUPERVISION_AND_RECOVERY.md) adds a
+`RedisRootSupervisor` and storage, network and maintenance supervisors.
+Storage restart fences and drains a complete WAL/shard generation before
+durable replay. Old `KvDatabase` routing snapshots carry a generation
+epoch and must reject stale requests, including direct actor references.
+Root failure requires **process fail-stop**. Corrupt manifests/CRC and
+exhausted restart budgets stay fenced.
+
+`src/redis_supervision.atto` and its `StorageAdmission` APIs are
+**NOT_COMPILED** proposals. The 13 Rust supervision-model tests exercise
+transition logic but are **not** Atto runtime or crash/fault-injection proof.
+Do not claim native Redis actor/server readiness until the toolchains
+compile and execute the full storage + network APIs.

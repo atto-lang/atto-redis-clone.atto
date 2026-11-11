@@ -42,3 +42,27 @@ Native AttoLang guest code now executes `Map<K,V>.get_optional(key): Option<V>` 
 [Executed private exact-blob Java/GraalVM CI run #43055373575](https://github.com/voxletra/voxletra-e2e/actions/runs/43055373575) passed **27/27 real compiler/typechecker/Truffle guest JUnit tests**, with zero skipped. Carrier SHA: `ee4afb302b946cb38f1d528715b436caf3502a33`, tree `01e06c40e17574c7ba9bf5265434d48a6bf9e259`. The 362 pinned source manifest entries and four changed compiler/JUnit blobs were independently verified; this was an existing approved private mirror and involved no source-org Actions job admission.
 
 **Not yet executed:** full `kv_database.atto` and `checkpoint.atto` compilation, native `std/net` TCP listener, RESP2 over Atto sockets, WAL/SST fsync and crash replay, AOT/multi-backend parity, and Atto/Rust throughput. The Redis PR and compiler PR must remain draft until actual executable gates pass.
+
+## Hierarchical supervisor and epoch-fencing gate (draft)
+
+The separate [supervision/recovery contract](SUPERVISION_AND_RECOVERY.md)
+defines `RedisRootSupervisor`, `StorageSupervisor`, `NetworkSupervisor`
+and `MaintenanceSupervisor` as specialized actors, not a new actor keyword.
+Root/process loss is fail-stop. A storage child OR storage-supervisor failure
+fences and drains the old epoch before whole-generation replay and atomic
+ready publication. Client actor failure is independent. Fatal disk integrity
+errors and restart storms must not enter an automatic recovery loop.
+
+`KvDatabase` now specifies an epoch-bound routing snapshot with
+`StorageAdmission.enter` covering SET, GET and DELETE. This target is still
+**NOT_COMPILED**. Its correctness needs real compiler/runtime proof that the
+lease is atomic, remains held across all awaits, is canceled safely, and
+cannot release before an in-flight WAL operation finishes. The 
+`rust/tests/supervision_contract.rs` checks a deterministic model only,
+not actual Atto admission, CONTROL delivery, shutdown or crash recovery.
+
+Mandatory native failures to inject: shard and WAL panic at every
+write/fsync/apply boundary, supervisor crash during replay, root crash,
+out-of-order CONTROL notices, stale handles, canceled command leases,
+manifest corruption, excessive restart rates and in-flight checkpoint
+pruning. No backend is certified by Rust-only tests.
