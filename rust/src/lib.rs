@@ -254,7 +254,7 @@ impl Manifest {
 fn lock_store(dir: &Path) -> io::Result<File> {
     use std::os::fd::AsRawFd;
     unsafe extern "C" { fn flock(fd: i32, operation: i32) -> i32; }
-    let file = OpenOptions::new().create(true).read(true).write(true).open(dir.join("WAL.lock"))?;
+    let file = OpenOptions::new().create(true).truncate(false).read(true).write(true).open(dir.join("WAL.lock"))?;
     if unsafe { flock(file.as_raw_fd(), 2 | 4) } != 0 { return Err(blocked("store already opened")); }
     Ok(file)
 }

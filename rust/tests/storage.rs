@@ -113,3 +113,16 @@ fn resp2_tcp_binary_pipeline() {
     assert_eq!(buf,b"+PONG\r\n+OK\r\n$2\r\n\x00\xff\r\n:1\r\n$-1\r\n+OK\r\n");
     handle.join().unwrap();
 }
+
+#[test]
+fn atto_audit_contracts_in_source_not_guest_execution() {
+    let kv = include_str!("../../src/kv_database.atto");
+    let cp = include_str!("../../src/checkpoint.atto");
+    assert!(kv.contains("SerialCommandLane.acquire(self)"));
+    assert!(kv.contains("read_newest_owned"));
+    assert!(kv.contains("insert_reserved"));
+    assert!(kv.contains("KvEntry(ack.lsn, None)"));
+    assert!(cp.contains("pause_and_drain_all_shard_lanes"));
+    assert!(cp.contains("prune_wal_through_global_fence"));
+    assert!(cp.contains("publish_manifest_and_fsync_parent"));
+}
