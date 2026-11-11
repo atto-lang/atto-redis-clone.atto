@@ -13,3 +13,27 @@
 Native acceptance: real compiled .atto SET/GET/DEL, binary empty/tombstone correctness, concurrent same-key WAL order across await, actor loan escapes rejected by compiler, forced-crash replay and torn WAL CRC, sparse-shard checkpoint, failure injection after each fsync/rename boundary, exact compiler and source SHAs. No comparative Atto throughput result may be claimed without executed guest receipts.
 
 The Rust reference benchmark can measure a workload, but it does not measure AttoLang.
+
+## Hierarchical supervisor and epoch-fencing gate (draft)
+
+The separate [supervision/recovery contract](SUPERVISION_AND_RECOVERY.md)
+defines `RedisRootSupervisor`, `StorageSupervisor`, `NetworkSupervisor`
+and `MaintenanceSupervisor` as specialized actors, not a new actor keyword.
+Root/process loss is fail-stop. A storage child OR storage-supervisor failure
+fences and drains the old epoch before whole-generation replay and atomic
+ready publication. Client actor failure is independent. Fatal disk integrity
+errors and restart storms must not enter an automatic recovery loop.
+
+`KvDatabase` now specifies an epoch-bound routing snapshot with
+`StorageAdmission.enter` covering SET, GET and DELETE. This target is still
+**NOT_COMPILED**. Its correctness needs real compiler/runtime proof that the
+lease is atomic, remains held across all awaits, is canceled safely, and
+cannot release before an in-flight WAL operation finishes. The 
+`rust/tests/supervision_contract.rs` checks a deterministic model only,
+not actual Atto admission, CONTROL delivery, shutdown or crash recovery.
+
+Mandatory native failures to inject: shard and WAL panic at every
+write/fsync/apply boundary, supervisor crash during replay, root crash,
+out-of-order CONTROL notices, stale handles, canceled command leases,
+manifest corruption, excessive restart rates and in-flight checkpoint
+pruning. No backend is certified by Rust-only tests.
