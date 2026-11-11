@@ -1,5 +1,26 @@
 # Atto Redis Clone
 
+## M1 IMPLEMENTED: actual AttoLang Redis-like TCP execution (ephemeral)
+
+A real `.atto` guest now owns in-memory SET/GET/DEL state and handles
+binary-safe Redis RESP2 requests through a **loopback-only JDK21 transport
+bridge**. The host only parses/fragments TCP and forwards encoded bytes;
+it does not implement or substitute the guest's KV storage.
+PING/ECHO/QUIT are protocol-layer transport commands.
+
+**Executed evidence:** [funded exact-blob Java/Truffle and TCP RESP2 carrier
+run #43062003166](https://github.com/voxletra/voxletra-e2e/actions/runs/43062003166)
+passed 3 real guest JUnit tests with zero skips, plus a real TCP client
+pipelining PING, binary SET/GET/DEL, absent key, empty live value, and QUIT.
+The required compiler fix is
+[Java PR #2883](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2883).
+
+See [working local launch instructions and limitations](docs/LOOPBACK_EPHEMERAL_M1.md).
+This new service is **EPHEMERAL, JDK-bridged and NOT production Redis**:
+it has NO WAL/fsync/restart durability, no Atto-native listener, no auth/TLS,
+no supervised actor storage, and no valid native Atto-vs-Rust benchmark.
+The Rust reference remains the only durable RESP/WAL implementation.
+
 ## Real Atto guest execution (not just Rust)
 
 A compiler candidate actually executed source files from this repository: src/redis_kv_smoke.atto runs scalar-map SET/GET/DEL returning 42; src/redis_actor_guest.atto spawns a real Atto actor and emits set|get|delete. See [successful native Truffle guest CI](https://github.com/voxletra/voxletra-e2e/actions/runs/43039057038) and [Java compiler PR #2881](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2881).
