@@ -133,3 +133,30 @@ The current Atto process performs blocking stdio line reads and its JDK transpor
 uses blocking sockets; this does **not** satisfy the eventual
 Atto-native nonblocking I/O / NIO design requirement. Native Atto async TCP,
 durable WAL/SST, sealed actor state and full cross-backend proof remain blockers.
+
+
+## Independent second run with expanded compiler-backed Atto actor tests
+
+[Private exact-blob run #43094341676](https://github.com/voxletra/voxletra-e2e/actions/runs/43094341676),
+job `130779189479`, carrier commit
+`d8f72801e27e886863e648b4e246e1149b99cef4`:
+the **same immutable benchmark blob** `c1cde39dc6518e0a9f5def9acc48ffe9bc61ea52`
+and the **same Atto Redis actor source** ran again with an expanded Java
+JUnit class (`94f94b943010b180fe6664be1f6e78cdd3aae2b4`,
+[compiler test PR #2895](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2895)).
+
+- **8/8 real Atto compiler/Truffle JUnit tests passed**, including actor mailbox
+  overwrite/duplicate-delete, binary/empty value, 48-cycle command ordering
+  and fresh-context Map isolation. Zero failures/errors/skips.
+- **14/14 Rust benchmark tests passed** and 10/10 real actor+TCP RESP2
+  workload trials passed, with 758 verified post-trial deletions each.
+- Atto actor + JDK21 bridge **median 6,494.7 ops/sec**. Rust fsync-always
+  reference **median 6,367.3 ops/sec**. Diagnostic ratio **1.0200**.
+- The variation from the previous independent same-workload run (Atto 4,393.9
+  vs Rust 7,071.1) is substantial. The two configurations remain structurally
+  incomparable and the results are **not** statistical evidence that native
+  Atto is faster than Rust.
+
+Both runs prove **actual Atto guest execution** behind the JDK bridge, not a
+Rust or Java KV surrogate. Neither run proves Atto-native nonblocking TCP,
+Atto durability, or five-backend performance parity.
