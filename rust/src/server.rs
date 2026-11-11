@@ -37,81 +37,18 @@ fn command(r:&mut BufReader<TcpStream>,max_bulk:usize)->io::Result<Option<Vec<Ve
     let n=count(&h[1..])?;
     if !(1..=MAX_ARGS).contains(&n){return Err(bad("argument count"));}
     let mut args=Vec::with_capacity(n);
-    let mut request_bytes=h.len()+2; // include the array header CRLF
+    let mut request_bytes=h.len()+2; // array header CRLF
     for i in 0..n{
         let Some(b)=line(r)? else{return Err(bad("truncated bulk"))};
-        if b.first()!=Some(&b'
-    Ok(Some(args))
-}
-fn bulk(v:Option<&[u8]>)->Vec<u8>{
-    let Some(v)=v else{return b"$-1\r\n".to_vec()};
-    let mut out=format!("{}{}\r\n","$",v.len()).into_bytes();
-    out.extend_from_slice(v);out.extend_from_slice(b"\r\n");out
-}
-pub fn serve_connection(stream:TcpStream,engine:Arc<Engine>)->io::Result<()>{
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(10)))?;
-    let mut reader=BufReader::new(stream.try_clone()?);
-    let mut writer=stream;
-    let cfg=engine.config();
-    let max=cfg.max_key_bytes.max(cfg.max_value_bytes);
-    loop{
-        let args=match command(&mut reader,max){
-            Ok(Some(x))=>x,Ok(None)=>return Ok(()),
-            Err(_)=>{writer.write_all(b"-ERR invalid RESP request\r\n")?;return Ok(());}
-        };
-        let op=args[0].iter().map(u8::to_ascii_uppercase).collect::<Vec<_>>();
-        let response=match (op.as_slice(),args.len()){
-            (b"PING",1)=>b"+PONG\r\n".to_vec(),
-            (b"PING",2)|(b"ECHO",2)=>bulk(Some(&args[1])),
-            (b"SET",3)=>match engine.set(&args[1],&args[2]){
-                Ok(_)=>b"+OK\r\n".to_vec(),
-                Err(_)=>b"-ERR storage operation failed\r\n".to_vec(),
-            },
-            (b"GET",2)=>match engine.get(&args[1]){
-                Ok(v)=>bulk(v.as_deref()),
-                Err(_)=>b"-ERR storage operation failed\r\n".to_vec(),
-            },
-            (b"DEL",2)=>match engine.delete_count(&args[1]){
-                Ok(true)=>b":1\r\n".to_vec(),
-                Ok(false)=>b":0\r\n".to_vec(),
-                Err(_)=>b"-ERR storage operation failed\r\n".to_vec(),
-            },
-            (b"QUIT",1)=>{writer.write_all(b"+OK\r\n")?;return Ok(());}
-            _=>b"-ERR unsupported command or argument count\r\n".to_vec(),
-        };
-        writer.write_all(&response)?;
-    }
-}
-pub fn serve(addr:&str,engine:Arc<Engine>)->io::Result<()>{
-    let listener=TcpListener::bind(addr)?;
-    let active=Arc::new(AtomicUsize::new(0));
-    for incoming in listener.incoming(){
-        let mut stream=incoming?;
-        if active.fetch_add(1,Ordering::AcqRel)>=MAX_CONNECTIONS{
-            active.fetch_sub(1,Ordering::AcqRel);
-            let _=stream.write_all(b"-ERR too many clients\r\n");continue;
-        }
-        let permit=ConnectionPermit(Arc::clone(&active));
-        let db=Arc::clone(&engine);
-        // A panicking handler must not leak the bounded client slot. A failed
-        // thread spawn drops its captured permit without aborting the server.
-        let _=thread::Builder::new().spawn(move||{
-            let _permit=permit;
-            let _=serve_connection(stream,db);
-        });
-    }
-    Ok(())
-}
-){return Err(bad("expected bulk"));}
+        if b.first()!=Some(&b'$'){return Err(bad("expected bulk"));}
         let size=count(&b[1..])?;
-        // Reject BEFORE allocating the declared body or reading from the socket.
+        // Reject before any allocation or read of the declared body.
         if i==0 && size>MAX_COMMAND_BYTES{return Err(bad("command name too long"));}
         if size>max_bulk || size>MAX_BULK_BYTES{return Err(bad("oversized bulk"));}
         request_bytes=request_bytes.checked_add(b.len())
-            .and_then(|x|x.checked_add(2)) // bulk header CRLF
+            .and_then(|x|x.checked_add(2))
             .and_then(|x|x.checked_add(size))
-            .and_then(|x|x.checked_add(2)) // bulk trailer CRLF
+            .and_then(|x|x.checked_add(2))
             .ok_or_else(||bad("request length overflow"))?;
         if request_bytes>MAX_REQUEST_BYTES{return Err(bad("oversized request"));}
         let mut v=vec![0;size];r.read_exact(&mut v)?;
@@ -170,15 +107,17 @@ pub fn serve(addr:&str,engine:Arc<Engine>)->io::Result<()>{
             active.fetch_sub(1,Ordering::AcqRel);
             let _=stream.write_all(b"-ERR too many clients\r\n");continue;
         }
-        let count=Arc::clone(&active);let db=Arc::clone(&engine);
-        thread::spawn(move||{
+        let permit=ConnectionPermit(Arc::clone(&active));
+        let db=Arc::clone(&engine);
+        // A handler panic must not leak a client slot. Failed spawn drops its
+        // captured permit rather than panicking the listener.
+        let _=thread::Builder::new().spawn(move||{
+            let _permit=permit;
             let _=serve_connection(stream,db);
-            count.fetch_sub(1,Ordering::AcqRel);
         });
     }
     Ok(())
 }
-
 
 #[cfg(test)]
 mod protocol_bounds_tests {
