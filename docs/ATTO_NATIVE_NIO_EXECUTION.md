@@ -140,3 +140,24 @@ identical-workload same-machine comparison and actual hot-call-target
 compilation receipt remain required. Full zero-copy actor transport
 needs typed guest \`Bytes\`, linear ownership across mailboxes,
 bounded per-connection socket writes and explicit cancellation leases.
+
+
+## First-class Atto Bytes + safe NIO2 handoff checkpoint (2026-11-11)
+
+**Executed [CI #43143141878](https://github.com/voxletra/voxletra-e2e/actions/runs/43143141878): 27/27 compiler-backed JUnit tests PASS**, zero errors/failures/skips, on the exact Java compiler and runtime blob SHAs. This includes the actual compiled Atto \`Bytes\` guest plus the original and one-message Redis actor guests.
+
+The Java source draft now has:
+
+- Compiler-resolved \`Bytes\` (non-generic) and synchronous \`size()\`, \`byte_at(int)\`, \`take()\` and \`close()\` members. In particular, \`Bytes.size()\` does **not** return \`Future<int>\`—a real compiler test caught and corrected the initial type mismatch.
+- \`NioConnection.read_owned_bytes_async(int)\`: NIO2 callback read into bounded immutable owned bytes (no \`List<int>\` boxing); clean EOF yields empty bytes; zero-byte completions rearm rather than faking EOF.
+- \`NioConnection.write_owned_bytes_async(Bytes)\`: compiler-checked linear consumption, corresponding runtime O(1) \`take()\`, immutable read lease held until all kernel write completions or cancellation; handle invalidation and final zeroization are exact-once. The guest cannot reuse the transferred value.
+- \`OresFuture.Callback.tryResolve(T)\`: atomic resource-publication acknowledgment, so a cancellation racing with a late NIO read completion cannot silently discard an owned buffer without closing it. Two additional tests verify cancellation/acceptance disposition and backing-array erasure.
+- Pinned \`maven-resources-plugin:3.3.1\` in the source Maven POM to avoid transient default-resolution behavior on funded runners. Exact POM SHA is checked by the private carrier.
+
+The running Redis actor still has the transitional hex-based mailbox encoding. The new linear \`Bytes\` protocol has been proven over *one real Atto NIO socket*, **not** through shared/private actor mailbox admission. Actor transfers need exact-once ownership commit, memory/queue quota accounting, cancellation rollback, and death/stop reclamation before they can be called zero-copy.
+
+**Executed [GraalVM25 tracing run #43143141904](https://github.com/voxletra/voxletra-e2e/actions/runs/43143141904):** 3,594.2 checked ops/sec with 10k measured requests, 5k warmups, release SHA256 verified, fallback warning absent. The real launcher now explicitly accepts \`--trace-truffle\` and enables \`engine.TraceCompilation\` with experimental engine options. **No \`opt done\` event was observed**; this is not an optimized guest-code receipt. Root execution currently delegates to \`@TruffleBoundary\` and needs an actual hot-call-target specialization before claiming Graal JIT speedup.
+
+**Executed [same-runner A/B #43143141842](https://github.com/voxletra/voxletra-e2e/actions/runs/43143141842):** original Atto NIO Redis 1,490.1 ops/sec, single-message actor 1,499.2 ops/sec (+0.6% within this run), Rust WAL/fsync-always 5,045.3 ops/sec. The 0.6% difference is negligible compared with runner variation; earlier positive A/B runs should not be represented as a guaranteed speedup. Different durability and warmup configurations prohibit cross-runtime parity conclusions.
+
+**Explicit outstanding gates:** actual observed hot Truffle target compilation and a matched compilation-on/off A/B comparison; actor mail/stream ownership for \`Bytes\`; memory-safe replay/disconnect/cancellation stress; sealed actor state; multi-client NIO backpressure; asynchronous durable WAL/recovery; and exact per-backend execution for LLVM, WASM, .NET and Forge. Keep both development PRs in DRAFT until their own release criteria are met.
