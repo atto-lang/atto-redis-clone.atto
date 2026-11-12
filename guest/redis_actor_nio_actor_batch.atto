@@ -3,7 +3,7 @@
 // One finite 1..16-command NIO2 input batch becomes ONE typed actor mail;
 // it returns ONE bounded ordered typed reply list. No Java/Rust KV and
 // no blocking I/O. This must be measured against the per-command actor path.
-define actor BatchedBytesKvActor implements StreamOperator<List[Tuple[int, Bytes, Bytes]>, List[Tuple[string, Bytes]>> as
+define actor BatchedBytesKvActor implements StreamOperator<List<Tuple<int, Bytes, Bytes>>, List<Tuple<string, Bytes>>> as
   let Map<Bytes,Bytes> values;
 
   on_start(): void {
@@ -11,7 +11,7 @@ define actor BatchedBytesKvActor implements StreamOperator<List[Tuple[int, Bytes
     return;
   }
 
-  receive(ActorMail<List[Tuple[int, Bytes, Bytes]>> mail): void {
+  receive(ActorMail<List<Tuple<int, Bytes, Bytes>>> mail): void {
     const List<Tuple<int, Bytes, Bytes>> commands = mail.value;
     // Empty control batch is a shutdown signal; only the owning guest
     // connection sends it, after all previous data mail is acknowledged.
