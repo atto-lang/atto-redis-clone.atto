@@ -130,7 +130,20 @@ fn phase(socket:&mut TcpStream,spec:PhaseSpec,c:&Config,
 struct Worker {start:Instant,end:Instant,count:usize,lat:Vec<u64>}
 fn client(addr:String,id:usize,trial:usize,c:Config)
     ->io::Result<Worker> {
-    let mut s=TcpStream::connect(addr)?;
+    // Guest compilation/startup may outlast benchmark process launch.
+    // Retry only connection-refused before the untimed warmup begins.
+    let mut attempt=0;
+    let mut s=loop {
+        match TcpStream::connect(&addr) {
+            Ok(socket)=>break socket,
+            Err(failure) if failure.kind()==io::ErrorKind::ConnectionRefused
+                             && attempt<200 => {
+                attempt+=1;
+                thread::sleep(Duration::from_millis(20));
+            },
+            Err(failure)=>return Err(failure),
+        }
+    };
     s.set_nodelay(true)?;
     s.set_read_timeout(Some(Duration::from_secs(20)))?;
     s.set_write_timeout(Some(Duration::from_secs(20)))?;
