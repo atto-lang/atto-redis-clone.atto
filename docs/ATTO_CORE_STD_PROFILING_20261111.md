@@ -173,3 +173,36 @@ The opt-in Java benchmark client exposes *bounded* `atto.redis.bench.warm` and `
 Each job completed SUCCESS with checked replies, exact Git blobs, vendor SHA, and no fallback warning. The second run's individual median request latencies were p50 210 µs (Atto trial 2) vs 44 µs (Redis trial 2). **The 10,801.3 ops/sec observation was one successful trial, not a stable throughput floor or proof the implementation reaches that rate consistently.** A longer workload did not produce a robust absolute performance increase: both servers ran slower on the second, different hosted runner. The approximately 19% *within-run* Atto/Redis throughput ratios are similar, but two hosted-runner observations are insufficient to establish a stable ratio, causal warm-up/JIT benefit, or perf SLA.
 
 **Action:** run pinned, reserved/dedicated CPU benches with long, stabilized warmup; record Truffle actual compilation/deoptimization events, CPU utilization, context switches, allocations/GC and multi-client/pipelined requests. Continue to optimize actor handoffs based on correlated traces, not source method caching or a host-owned Map. Avoid claiming native/AOT, durability, five-backend parity or Redis competitiveness.
+
+## Spin server and http-routing audit: independent mailbox transport (2026-11-12 UTC)
+
+The two source-of-truth repositories were examined at their current private main branches:
+- [oreslang-spin](https://github.com/ores-truffle-oreslang/oreslang-spin), especially `src/spin.ores`, the 180s [mailbox report](https://github.com/ores-truffle-oreslang/oreslang-spin/blob/main/docs/benchmarks/2026-10-18/mailbox-180s/README.md), [profiling](https://github.com/ores-truffle-oreslang/oreslang-spin/blob/main/docs/PROFILING.md), and [reusable-actor contracts](https://github.com/ores-truffle-oreslang/oreslang-spin/blob/main/docs/REUSABLE_ACTORS.md).
+- [oreslang-http-routing](https://github.com/ores-truffle-oreslang/oreslang-http-routing), especially [immutable SoA trie / snapshot design](https://github.com/ores-truffle-oreslang/oreslang-http-routing/blob/main/docs/DESIGN.md) and [adapter boundary](https://github.com/ores-truffle-oreslang/oreslang-http-routing/blob/main/docs/ADAPTER_CONTRACT.md).
+
+### Directly transferable lesson
+
+Spin's multiple-actor production workload found a lock convoy on `ChannelRuntime.COORDINATOR`: unrelated actor USER/continuation mailboxes should not contend with general guest multi-channel `select`, which must retain atomic arbitration. The Spin exploratory fixed-lane pilot moved from **7.864ms mean pending HTTP queue / 11,506 req/s** to **0.135ms / 39,494 req/s**, and final 180s shared actor run measured **43,495 req/s**. The pilot was not an isolated one-line fix: configurations and the transport/metadata improvements also changed, so these results cannot be mapped directly to Atto Redis speedups.
+
+The Atto compiler branch was audited and indeed still initialized its USER, ordinary continuation, and source-task continuation inboxes as ordinary `ChannelRuntime.Channel<T>` objects, whose `tryWrite`/`tryRead` go through the **global** guest `select` lock. The new stacked [compiler PR #2928](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2928) implements **runtime-private, select-ineligible bounded `Channel<T>`** for these three channels, with per-mailbox synchronized FIFO; actor outputs and general guest channels still use the original global-coordinator protocol. Per-actor single-writer state, lifecycle fencing, quotas, supervisor priority, Future cancellation, STOP drain and CONTINUE source-task cleanup remain unchanged.
+
+### Exact-source executed evidence; no speedup claim
+
+[Private runner #43146834604](https://github.com/voxletra/voxletra-e2e/actions/runs/43146834604) **SUCCESS**, 24/24 JUnit tests, no skips or failures, including real Atto NIO2 RESP2 actor and five new mailbox tests (concurrent producers, capacity, FIFO/close, no selectable endpoint escape, and independent progress while the global lock is held).
+
+Same-runner, profiler-OFF, correct-reply ABBA **real Atto guest** 3×(1,000 warm +1,500 measured) per variant process:
+- Original global-select mailbox: **3,894.2** first / **3,514.6** last ops/sec; mean **3,704.4**.
+- Runtime-private mailbox: **3,713.7** first / **3,540.3** second ops/sec; mean **3,627.0**.
+- Optimized/baseline mean **0.9791×**; no demonstrated single-client throughput improvement.
+
+[Broader source-regression runner #43147308854](https://github.com/voxletra/voxletra-e2e/actions/runs/43147308854) **SUCCESS**: 139/139 executed tests, zero failures/errors/skips, including `ActorRuntimeTest`, `ChannelRuntimeTest`, `FutureChannelSelectTest`, mailbox async backpressure/STOP/close/race/accounting and real Atto guest binary correctness. All four Java change/test blobs and original baselines were exact-Git-blob verified on the source-free private carrier without cross-org credentials.
+
+**Crucial qualification:** Redis's current single-client NIO2 actor benchmark cannot reproduce Spin's multi-producer convoy. The lock-independent private mailbox implementation is a validated *candidate*, not a proven end-to-end Redis optimization. Keep [PR #2928](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2928) draft and unmerged until repeated **8/32 client + pipelining** tests, strict fairness and cancellation stress, and same-runner stabilized GraalVM25.3.4.1 benchmarks pass.
+
+### HTTP routing: do not conflate transport with command routing
+
+`oreslang-http-routing` compiles registrations to an immutable, flat structure-of-arrays trie. It carries scalar `handler_id`, `pipeline_id`, `contract_id` and `operation_id`, not host closures or sockets; path captures are views, not per-request Map allocations. For future Redis HTTP management/control APIs, use this transport-neutral routing model outside the binary RESP data path, with immutable snapshots and bounded match complexity.
+
+**Do not put HTTP trie matching or a Java-host handler map into Redis's simple fixed SET/GET/DEL hot path.** Redis command dispatch should use closed, typed numeric/enum operation IDs once binary RESP parsing hands off one owned command to the Atto actor; application Map and response construction stay in Atto. Do not route an untrusted request `Decision` or borrow into an isolated actor without scalar/owned projection. These are design recommendations, not implemented Redis speedups.
+
+Next: measure real multi-client mailbox pressure and prove that the private mailbox removes an *actual* convoy. Add precise actor queue/await correlation and hot GraalVM compilation evidence before changing throughput knobs or claiming any performance parity.
