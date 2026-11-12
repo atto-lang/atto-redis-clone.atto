@@ -94,8 +94,8 @@ pub async routine main(): void {
       if results.size != commands.size; do
         await socket.close_async();
         await listener.close_async();
-        let mut List<Tuple<int, Bytes, Bytes>> stop = [];
-        worker.send(stop);
+        let mut List<Tuple<int, Bytes, Bytes>> shutdown_batch = [];
+        worker.send(shutdown_batch);
         await worker.get_done();
         return;
       fi
@@ -109,8 +109,8 @@ pub async routine main(): void {
       fi
       await socket.close_async();
       await listener.close_async();
-      let mut List<Tuple<int, Bytes, Bytes>> stop = [];
-      worker.send(stop);
+      let mut List<Tuple<int, Bytes, Bytes>> shutdown_batch = [];
+      worker.send(shutdown_batch);
       await worker.get_done();
       return;
     fi
