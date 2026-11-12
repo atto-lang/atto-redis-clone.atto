@@ -13,12 +13,16 @@ Build/test with Rust 1.85+:
 
 Use separately started loopback Atto and official Redis endpoints:
 
-    rust/target/release/bench_resp --atto 127.0.0.1:6380 --rust 127.0.0.1:6379 --requests 20000 --warmup 2000 --trials 7 --clients 1 --pipeline 1 --keys 1024 --value-bytes 64 --seed 42
+    rust/target/release/bench_resp --atto 127.0.0.1:6380 --rust 127.0.0.1:6379 --requests 20000 --warmup 2000 --trials 1 --clients 1 --pipeline 1 --keys 1024 --value-bytes 64 --seed 42
     rust/target/release/bench_resp --rust 127.0.0.1:6379 --requests 20000 --warmup 2000 --trials 7 --clients 16 --pipeline 64 --keys 1024 --value-bytes 1024 --seed 42
 
 **Do not claim multi-client Atto certification.** The current Atto guest
 accepts one connection and consumes an uncorrelated shared actor-output
-stream. Multi-client routing requires per-request correlation and bounded
+stream. Therefore a single Atto guest launch supports **only one client and
+one trial**; for independent repeated Atto trials, restart the guest in an
+external orchestrator for each trial. The benchmark's `--trials > 1` option
+is for endpoints that accept multiple successive sessions (e.g., Redis).
+Multi-client routing requires per-request correlation and bounded
 socket sessions before concurrent clients can safely share one KV actor.
 
 The driver performs 50/40/10 SET/GET/DEL with per-client key namespaces,
