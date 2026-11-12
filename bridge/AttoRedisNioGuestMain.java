@@ -18,8 +18,10 @@ public final class AttoRedisNioGuestMain {
     private AttoRedisNioGuestMain() { }
 
     public static void main(String[] args) throws Exception {
-        if (args.length != 2) throw new IllegalArgumentException(
-                "usage: AttoRedisNioGuestMain path/to/redis_actor_nio.atto numeric-loopback-port");
+        if (args.length != 2 && !(args.length == 3 && "--trace-truffle".equals(args[2]))) {
+            throw new IllegalArgumentException(
+                    "usage: AttoRedisNioGuestMain path/to/redis_actor_nio.atto numeric-loopback-port [--trace-truffle]");
+        }
         Path path = Path.of(args[0]).toAbsolutePath().normalize();
         if (!path.toString().endsWith(".atto") || Files.isSymbolicLink(path)
                 || !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
@@ -37,11 +39,19 @@ public final class AttoRedisNioGuestMain {
         }
         source = source.replace("__PORT__", Integer.toString(port));
         OresCompiler.parseAndTypeCheck(source);
-        try (Context context = Context.newBuilder(OresLanguage.ID)
+        // Explicit experimental diagnostic mode for CI. Not enabled in normal
+        // production launches. A successful JVM version check alone does not
+        // establish that an Oreslang guest call target has been compiled.
+        Context.Builder builder = Context.newBuilder(OresLanguage.ID)
                 .allowAllAccess(false)
                 .arguments(OresLanguage.ID,
-                        new String[] {"--ores-capabilities=NETWORK,ACTOR_SPAWN,SHARED_MEMORY"})
-                .build()) {
+                        new String[] {"--ores-capabilities=NETWORK,ACTOR_SPAWN,SHARED_MEMORY"});
+        if (args.length == 3) {
+            builder.allowExperimentalOptions(true);
+            builder.option("engine.TraceCompilation", "true");
+            builder.option("engine.CompilationFailureAction", "Print");
+        }
+        try (Context context = builder.build()) {
             context.eval(Source.newBuilder(OresLanguage.ID, source, "redis_actor_nio.atto")
                     .mimeType(OresLanguage.MIME_TYPE).build());
         }
