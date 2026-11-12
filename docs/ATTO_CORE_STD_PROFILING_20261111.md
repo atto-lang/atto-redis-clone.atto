@@ -157,3 +157,19 @@ However, [exact-pinned baseline→cached→cached→baseline A/B #43142385627](h
 4. Implement a first-class owned `Bytes` primitive and binary Map only after borrow/sendable/lifetime and arbitrary-byte RESP conformance are compiler-backed.
 
 All production-parity/durability claims remain **unverified**: no multi-client scale, durable async WAL with fsync, Native Image AOT, LLVM/.NET/WASM/Forge execution, sealed actor state conformance, or adversarial supervisor recovery gate.
+
+
+## Longer optimizing-runtime, profiler-OFF performance evidence
+
+The real Atto NIO2 actor with one typed output per command was tested against **official Redis 7.0.15**, using the same correctness-checking sequential binary RESP2 benchmark client, one loopback connection, same host *within each run*, 64-key working space, 64B values, 50/40/10 SET/GET/DEL, and persistence disabled on Redis and absent on Atto.
+
+The opt-in Java benchmark client exposes *bounded* `atto.redis.bench.warm` and `atto.redis.bench.measured` system properties (maximum 20,000 each); its existing short defaults remain 200/600 and its server code remains unchanged. The actual Atto guest SHA is still `56d844bb80f1711eb9643f0c38c4f4f9742a5eb6`. The test source SHA is `fec6083037fb433042e4fe5f0a9186bb7f527662`. Matched GraalVM Community 25.3.4.1 was downloaded from the official release archive with checked SHA-256 `b2bc38d0c4141426eb44d0eefa3cc172c96faf92727d703b61541699128b6fc7`; both jobs reject the Truffle interpreter fallback warning.
+
+| Same-host executed run | Atto trials (ops/sec) | Redis trials (ops/sec) | Atto median | Redis median | Relative |
+| --- | --- | --- | ---: | ---: | ---: |
+| [#43144034178](https://github.com/voxletra/voxletra-e2e/actions/runs/43144034178): 8,000 warm + 5,000 measured ×3 | 5,429.6 / 7,551.3 / **10,801.3** | 38,001.2 / 40,834.8 / 40,008.0 | **7,551.3** | **40,008.0** | **18.87%** |
+| [#43144308989](https://github.com/voxletra/voxletra-e2e/actions/runs/43144308989): 20,000 warm + 10,000 measured ×3 | 3,551.6 / 4,369.2 / 4,564.3 | 25,288.1 / 22,463.9 / 22,073.7 | **4,369.2** | **22,463.9** | **19.45%** |
+
+Each job completed SUCCESS with checked replies, exact Git blobs, vendor SHA, and no fallback warning. The second run's individual median request latencies were p50 210 µs (Atto trial 2) vs 44 µs (Redis trial 2). **The 10,801.3 ops/sec observation was one successful trial, not a stable throughput floor or proof the implementation reaches that rate consistently.** A longer workload did not produce a robust absolute performance increase: both servers ran slower on the second, different hosted runner. The approximately 19% *within-run* Atto/Redis throughput ratios are similar, but two hosted-runner observations are insufficient to establish a stable ratio, causal warm-up/JIT benefit, or perf SLA.
+
+**Action:** run pinned, reserved/dedicated CPU benches with long, stabilized warmup; record Truffle actual compilation/deoptimization events, CPU utilization, context switches, allocations/GC and multi-client/pipelined requests. Continue to optimize actor handoffs based on correlated traces, not source method caching or a host-owned Map. Avoid claiming native/AOT, durability, five-backend parity or Redis competitiveness.
