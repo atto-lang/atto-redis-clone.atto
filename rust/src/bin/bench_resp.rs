@@ -1,7 +1,7 @@
 //! Oracle-verified RESP2 benchmark for Rust reference and real Atto guest.
 //! Blocking TCP is test-client-only: never reuse on actor/NIO/CONTROL paths.
 use std::{collections::HashMap,env,io::{self,Read,Write},net::TcpStream,
-          sync::{Arc,Barrier},thread,time::{Duration,Instant}};
+          thread,time::{Duration,Instant}};
 
 fn err(s:&str)->io::Error{io::Error::new(io::ErrorKind::InvalidData,s)}
 
@@ -127,7 +127,7 @@ fn phase(socket:&mut TcpStream,count:usize,offset:usize,id:usize,trial:usize,
     }Ok(())
 }
 struct Worker {start:Instant,end:Instant,count:usize,lat:Vec<u64>}
-fn client(addr:String,id:usize,trial:usize,c:Config,gate:Arc<Barrier>)
+fn client(addr:String,id:usize,trial:usize,c:Config)
     ->io::Result<Worker> {
     let mut s=TcpStream::connect(addr)?;
     s.set_nodelay(true)?;
@@ -137,7 +137,6 @@ fn client(addr:String,id:usize,trial:usize,c:Config,gate:Arc<Barrier>)
     let n=c.requests/c.clients+usize::from(id<c.requests%c.clients);
     let warm=c.warmup/c.clients+usize::from(id<c.warmup%c.clients);
     let mut lat=Vec::with_capacity(n);
-    gate.wait();
     phase(&mut s,warm,0,id,trial,&c,&mut oracle,&mut lat,false)?;
     let start=Instant::now();
     phase(&mut s,n,warm,id,trial,&c,&mut oracle,&mut lat,true)?;
@@ -154,10 +153,10 @@ fn client(addr:String,id:usize,trial:usize,c:Config,gate:Arc<Barrier>)
 }
 fn pct(sorted:&[u64],p:usize)->u64{sorted[(sorted.len()-1)*p/100]/1000}
 fn run(addr:&str,c:&Config,trial:usize)->io::Result<(f64,u64,u64,u64,f64)>{
-    let gate=Arc::new(Barrier::new(c.clients));let mut workers=Vec::new();
+    let mut workers=Vec::new();
     for id in 0..c.clients {
-        let a=addr.to_owned();let config=c.clone();let b=gate.clone();
-        workers.push(thread::spawn(move||client(a,id,trial,config,b)));
+        let a=addr.to_owned();let config=c.clone();
+        workers.push(thread::spawn(move||client(a,id,trial,config)));
     }
     let mut results=Vec::new();
     for w in workers {
