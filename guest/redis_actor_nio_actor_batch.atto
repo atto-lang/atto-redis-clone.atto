@@ -86,12 +86,14 @@ pub async routine main(): void {
     }
 
     if commands.size > 0; do
+      // After send the List is moved; preserve only its scalar count.
+      const int expected_reply_count = commands.size;
       worker.send(commands);
       val output = (await worker.outputs.next()).value.unwrap();
       const List<Tuple[string, Bytes]> results = output.value;
       // Enforce exact cardinality. Wrong-length actor replies are fatal to
       // this session; never permit a shifted or cross-request RESP stream.
-      if results.size != commands.size; do
+      if results.size != expected_reply_count; do
         await socket.close_async();
         await listener.close_async();
         let mut List<Tuple[int, Bytes, Bytes]> shutdown_batch = [];
