@@ -112,3 +112,48 @@ unpaired JDK21 and GraalVM25 runs on different transient CI hosts.
 
 **Do not merge** as production, optimized native Atto, or durable Redis parity until
 the missing gates execute. Existing source PRs remain draft and stacked.
+
+
+## Post-warm-up actor and async hot-path profile — 2026-11-12 UTC
+
+A follow-up instrumentation patch in [Java compiler PR #2919](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2919) recorded actual Atto actor message queue delay, source dispatch, OresScheduler queue delay, OresFuture runtime-waiter notification, and typed Map SET/GET/DELETE operations in addition to the existing NIO phases. The profiler is opt-in and uses fixed numeric IDs, not string formatting, I/O, or user payloads on hot paths.
+
+The early profile [#43141661867](https://github.com/voxletra/voxletra-e2e/actions/runs/43141661867) **passed 18/18 core/std/real guest tests** and profiler-OFF binary RESP2 correctness, but the recorder retained the **first** 8,192 events, including startup and early warm-up. Its p50 actor dispatch (~266 µs) and queue (~125 µs) must not be presented as mature steady-state statistics.
+
+To correct sampling bias, the test harness now opt-in enables the bounded CorePerf recorder **only in the third trial's measured interval**, after two complete workload rounds and the third trial's 200-request warm-up. This is client/test-side instrumentation control; the real actor does not synchronously log.
+
+| Timed phase, p50 | Warmed JDK21 Truffle (µs) | Warmed GraalVM 25.3.4.1 (µs) |
+| --- | ---: | ---: |
+| Actor user mailbox queue | **69.741** | **90.526** |
+| Actor receive dispatch, including possible source scheduling | **147.066** | **196.056** |
+| Scheduler turn queue | **24.767** | **30.326** |
+| Future waiter notification drain | **0.141** | **0.121** |
+| Typed Map SET | **2.354** | **2.473** |
+| Typed Map GET optional | **1.382** | **2.704** |
+| Typed Map DELETE | **2.675** | **5.498** |
+| RESP parsing | **4.239** | **4.577** |
+| NIO write submission | **39.354** | **43.045** |
+| NIO write completion | **88.726** | **110.226** |
+
+**Exact-source successful CI:**
+
+- [JDK21 warmed profile #43143333137](https://github.com/voxletra/voxletra-e2e/actions/runs/43143333137): 18/18 core/std/Atto guest tests, real NIO actor profile, profiler-OFF binary RESP2 test, original-vs-single-reply ABBA correctness all passed. Guest `redis_actor_nio_fast.atto` blob remains `56d844bb80f1711eb9643f0c38c4f4f9742a5eb6`.
+- [Matching GraalVM25.3.4.1 warmed profile #43143369180](https://github.com/voxletra/voxletra-e2e/actions/runs/43143369180): exact official vendor-release SHA-256 `b2bc38d0c4141426eb44d0eefa3cc172c96faf92727d703b61541699128b6fc7` checked, genuine Atto binary guest and core/std Trace correctness passed, no interpreter-fallback warning; all ten required phase families captured.
+- Modified warmed-only client test source SHA `fec259d34976feed3c911898c425eef20159cc87` is mirrored unchanged from compiler #2919.
+
+**Interpretation limits:** Two independent hosted-runner executions cannot establish a causal JDK21-vs-GraalVM25 throughput or latency ranking. Each phase's p50 is an independent histogram from the first bounded warmed events, NOT a matched per-request sample; queueing, dispatch, Future drain, and NIO completion can overlap or cover different requests. `future.waiter.notify` also includes callbacks for non-Redis runtime Futures. After 1,800 warm-up/prior-trial operations this is *better warmed*, not yet proof of stable hot-method compilation. We have not isolated kernel-only write time or the actor-to-client output-stream wait.
+
+## Negative optimization result: cached per-generation receive handler
+
+Companion [compiler PR #2923](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2923) caches the resolved immutable actor `receive` method and whether its body requires a SourceTask; actor ownership and generation validation remain per-message. This removes repeated hierarchy lookup and AST suspension/loop scanning. The compile and real guest regression suite [#43142845891](https://github.com/voxletra/voxletra-e2e/actions/runs/43142845891) passed **30/30 actual core/std/guest/binary/async/negative-compiler tests**.
+
+However, [exact-pinned baseline→cached→cached→baseline A/B #43142385627](https://github.com/voxletra/voxletra-e2e/actions/runs/43142385627) showed baseline first=2,394.2, cached first=2,421.0, cached second=2,322.2, baseline last=2,450.6 ops/s. Mean baseline=**2,422.4**, cached=**2,371.6**, ratio=**0.9790**. No demonstrated throughput gain. Both variants execute the same real Atto guest with exact compiler file blob hashes in each independent Maven run. **Keep PR #2923 DRAFT; do not claim optimization success.**
+
+## Next justified bottleneck-targeting gate
+
+1. Add a bounded, correlated sampling mode for actor message admission, receive, output reply enqueue/dequeue, and Future wake-up so each phase can be joined to its originating command without retaining keys, values, tenant identity, or unbounded samples.
+2. Benchmark long, already-hot optimized Truffle runtime on exact GraalVM25.3.4.1, including proof of actual method compilation/deoptimization, and CPU/GC/allocation profiles.
+3. Reduce context switches in a **conformance-checked** manner (e.g., batch command envelopes while preserving one ordered reply per request, actor-isolated Map ownership, channel backpressure, cancellation and supervisor CONTROL priority). Do not insert blocking socket/stdio or a host-owned Redis KV fast path.
+4. Implement a first-class owned `Bytes` primitive and binary Map only after borrow/sendable/lifetime and arbitrary-byte RESP conformance are compiler-backed.
+
+All production-parity/durability claims remain **unverified**: no multi-client scale, durable async WAL with fsync, Native Image AOT, LLVM/.NET/WASM/Forge execution, sealed actor state conformance, or adversarial supervisor recovery gate.
