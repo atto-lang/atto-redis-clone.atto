@@ -136,206 +136,206 @@ pub async routine main(): void {
   val listener = await network.listen_async("127.0.0.1", 16399);
   val Channel<Tuple[int, int, List<Tuple[int, Bytes, Bytes]>]> requests =
       Channel.new<Tuple[int, int, List<Tuple[int, Bytes, Bytes]>]>(32);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_1 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_2 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_3 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_4 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_5 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_6 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_7 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_8 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_9 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_10 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_11 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_12 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_13 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_14 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_15 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_16 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_17 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_18 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_19 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_20 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_21 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_22 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_23 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_24 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_25 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_26 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_27 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_28 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_29 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_30 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_31 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_32 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_33 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_34 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_35 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_36 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_37 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_38 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_39 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_40 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_41 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_42 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_43 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_44 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_45 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_46 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_47 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_48 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_49 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_50 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_51 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_52 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_53 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_54 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_55 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_56 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_57 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_58 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_59 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_60 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_61 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_62 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_63 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_64 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_65 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_66 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_67 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_68 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_69 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_70 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_71 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_72 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_73 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_74 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_75 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_76 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_77 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_78 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_79 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_80 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_81 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_82 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_83 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_84 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_85 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_86 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_87 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_88 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_89 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_90 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_91 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_92 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_93 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_94 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_95 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_96 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_97 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_98 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_99 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
-  val Channel<Tuple[int, List<Tuple[string, Bytes]>>> reply_100 =
-      Channel.new<Tuple[int, List<Tuple[string, Bytes]>>>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_1 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_2 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_3 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_4 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_5 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_6 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_7 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_8 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_9 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_10 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_11 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_12 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_13 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_14 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_15 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_16 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_17 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_18 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_19 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_20 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_21 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_22 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_23 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_24 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_25 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_26 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_27 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_28 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_29 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_30 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_31 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_32 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_33 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_34 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_35 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_36 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_37 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_38 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_39 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_40 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_41 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_42 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_43 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_44 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_45 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_46 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_47 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_48 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_49 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_50 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_51 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_52 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_53 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_54 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_55 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_56 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_57 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_58 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_59 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_60 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_61 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_62 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_63 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_64 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_65 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_66 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_67 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_68 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_69 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_70 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_71 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_72 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_73 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_74 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_75 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_76 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_77 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_78 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_79 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_80 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_81 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_82 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_83 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_84 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_85 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_86 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_87 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_88 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_89 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_90 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_91 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_92 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_93 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_94 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_95 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_96 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_97 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_98 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_99 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
+  val Channel<Tuple[int, List<Tuple[string, Bytes]>]> reply_100 =
+      Channel.new<Tuple[int, List<Tuple[string, Bytes]>]>(1);
   val NioConnection first = await listener.accept_async();
   task scope {
     let Future<void> intake = task {
