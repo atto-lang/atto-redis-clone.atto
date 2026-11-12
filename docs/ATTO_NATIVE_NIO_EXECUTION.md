@@ -95,3 +95,48 @@ The compiled Redis guest is reviewed in
 [atto-redis-clone.atto #13](https://github.com/ores-truffle-oreslang/atto-redis-clone.atto/pull/13).
 
 Neither PR should be represented as production-ready until these gates pass.
+
+
+## JVM-owned Bytes and GraalVM 25 verification — 2026-11-11
+
+The compiler runtime draft [Java PR #2894](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2894)
+now includes \`OresBytes\`: bounded (1 MiB), immutable, single-owner
+transfer by \`take()\`, use-after-take prevention, read leases and
+deferred backing-store zeroization while trusted NIO2 reads are active.
+The RESP2 codec has a new \`parseBinary\` / \`encodeBinary\` path, which
+validates the same strict byte framing as the existing string path but
+does not create hex strings or \`List<int>\` boxes for payloads.
+
+**Evidence:** [exact-source CI #43124972780](https://github.com/voxletra/voxletra-e2e/actions/runs/43124972780):
+21/21 executed JUnit cases, zero errors/failures/skips, including
+7 newly added \`OresBytesBinaryCodecTest\` cases (ownership transfer,
+racing takes, use-after-take, lease retention during retirement,
+all-octet binary identity, fragmented/malformed RESP2 and nil/empty).
+Both real Atto Redis actor variants remain green.
+
+**Integration status:** this is a *JVM runtime foundation*. The currently
+executed guest still uses hex-string actor messages, so the new binary
+path has NOT yet produced an Atto Redis throughput improvement, has
+NOT yet been exposed as a validated first-class Atto \`Bytes\` type,
+and does NOT yet prove cross-backend or actor transport parity.
+
+The exact matching [GraalVM Community 25.3.4.1 release](https://github.com/graalvm/graalvm-ce-builds/releases/tag/graal-25.3.4.1)
+was installed from its official tarball and verified against its
+published SHA-256, rather than taking a potentially incompatible
+generic JDK25 GraalVM build.
+[Executed run #43124110196](https://github.com/voxletra/voxletra-e2e/actions/runs/43124110196)
+passed 10,000 checked requests after 5,000 warmups at
+3,540.5 ops/sec; [repeat #43124972788](https://github.com/voxletra/voxletra-e2e/actions/runs/43124972788)
+reported 5,540.7 ops/sec on a later hosted runner.
+Neither run emitted a fallback-runtime warning. **No Truffle \`opt done\`
+compilation event was observed**; compatible GraalVM JDK execution is
+not proof that the existing \`OresEvalRootNode\` boundary-heavy guest
+evaluator was optimized by Truffle.
+
+Do not directly divide the GraalVM 10k/5k-warmup results by the
+Temurin JDK21 1k/200-warmup results and label it a JIT speedup;
+the workload duration, warmup and runner vary. A paired,
+identical-workload same-machine comparison and actual hot-call-target
+compilation receipt remain required. Full zero-copy actor transport
+needs typed guest \`Bytes\`, linear ownership across mailboxes,
+bounded per-connection socket writes and explicit cancellation leases.
