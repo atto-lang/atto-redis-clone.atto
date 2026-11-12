@@ -41,7 +41,7 @@ fn reply<R:Read>(r:&mut R)->io::Result<Reply>{
             if !data.ends_with(b"\r\n"){return Err(err("bulk terminator"))}
             data.truncate(n as usize);Ok(Reply::Bulk(Some(data)))
         }
-        b'-'=>Err(io::Error::new(io::ErrorKind::Other,
+        b'-'=>Err(io::Error::other(
             format!("server error: {}",String::from_utf8_lossy(body)))),
         _=>Err(err("unsupported RESP reply")),
     }
@@ -99,9 +99,10 @@ fn operation(i:usize,client:usize,trial:usize,c:&Config,
         }
     }
 }
-fn phase(socket:&mut TcpStream,count:usize,offset:usize,id:usize,trial:usize,
-    c:&Config,oracle:&mut HashMap<Vec<u8>,Vec<u8>>,lat:&mut Vec<u64>,
-    measured:bool)->io::Result<()>{
+struct PhaseSpec {count:usize,offset:usize,id:usize,trial:usize,measured:bool}
+fn phase(socket:&mut TcpStream,spec:PhaseSpec,c:&Config,
+    oracle:&mut HashMap<Vec<u8>,Vec<u8>>,lat:&mut Vec<u64>)->io::Result<()>{
+    let PhaseSpec{count,offset,id,trial,measured}=spec;
     let mut done=0;
     while done<count {
         let n=c.pipeline.min(count-done);let mut requests=Vec::new();
@@ -137,9 +138,11 @@ fn client(addr:String,id:usize,trial:usize,c:Config)
     let n=c.requests/c.clients+usize::from(id<c.requests%c.clients);
     let warm=c.warmup/c.clients+usize::from(id<c.warmup%c.clients);
     let mut lat=Vec::with_capacity(n);
-    phase(&mut s,warm,0,id,trial,&c,&mut oracle,&mut lat,false)?;
+    phase(&mut s,PhaseSpec{count:warm,offset:0,id,trial,measured:false},
+          &c,&mut oracle,&mut lat)?;
     let start=Instant::now();
-    phase(&mut s,n,warm,id,trial,&c,&mut oracle,&mut lat,true)?;
+    phase(&mut s,PhaseSpec{count:n,offset:warm,id,trial,measured:true},
+          &c,&mut oracle,&mut lat)?;
     let end=Instant::now();
     // Cleanup (not timed), verifying all remaining values are deleted.
     let keys:Vec<Vec<u8>>=oracle.keys().cloned().collect();
