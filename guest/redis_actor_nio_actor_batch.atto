@@ -3,7 +3,7 @@
 // One finite 1..16-command NIO2 input batch becomes ONE typed actor mail;
 // it returns ONE bounded ordered typed reply list. No Java/Rust KV and
 // no blocking I/O. This must be measured against the per-command actor path.
-define actor BatchedBytesKvActor implements StreamOperator<List<Tuple<int, Bytes, Bytes>>, List<Tuple<string, Bytes>>> as
+define actor BatchedBytesKvActor implements StreamOperator<List<Tuple[int, Bytes, Bytes]>, List<Tuple[string, Bytes]>> as
   let Map<Bytes,Bytes> values;
 
   on_start(): void {
@@ -11,15 +11,15 @@ define actor BatchedBytesKvActor implements StreamOperator<List<Tuple<int, Bytes
     return;
   }
 
-  receive(ActorMail<List<Tuple<int, Bytes, Bytes>>> mail): void {
-    const List<Tuple<int, Bytes, Bytes>> commands = mail.value;
+  receive(ActorMail<List<Tuple[int, Bytes, Bytes]>> mail): void {
+    const List<Tuple[int, Bytes, Bytes]> commands = mail.value;
     // Empty control batch is a shutdown signal; only the owning guest
     // connection sends it, after all previous data mail is acknowledged.
     if commands.size == 0; do
       self.end();
       return;
     fi
-    let mut List<Tuple<string, Bytes>> results = [];
+    let mut List<Tuple[string, Bytes]> results = [];
     let int i = 0;
     loop {
       if i == commands.size then break; fi
@@ -66,7 +66,7 @@ pub async routine main(): void {
     // Await ONE complete command; drain only already-buffered complete
     // frames. Unlike a fixed timer batch this never waits for 16 commands.
     const frames = await socket.read_resp2_binary_batch_async(16);
-    let mut List<Tuple<int, Bytes, Bytes>> commands = [];
+    let mut List<Tuple[int, Bytes, Bytes]> commands = [];
     let int terminate = 0;
     let int i = 0;
     loop {
@@ -88,13 +88,13 @@ pub async routine main(): void {
     if commands.size > 0; do
       worker.send(commands);
       val output = (await worker.outputs.next()).value.unwrap();
-      const List<Tuple<string, Bytes>> results = output.value;
+      const List<Tuple[string, Bytes]> results = output.value;
       // Enforce exact cardinality. Wrong-length actor replies are fatal to
       // this session; never permit a shifted or cross-request RESP stream.
       if results.size != commands.size; do
         await socket.close_async();
         await listener.close_async();
-        let mut List<Tuple<int, Bytes, Bytes>> shutdown_batch = [];
+        let mut List<Tuple[int, Bytes, Bytes]> shutdown_batch = [];
         worker.send(shutdown_batch);
         await worker.get_done();
         return;
@@ -109,7 +109,7 @@ pub async routine main(): void {
       fi
       await socket.close_async();
       await listener.close_async();
-      let mut List<Tuple<int, Bytes, Bytes>> shutdown_batch = [];
+      let mut List<Tuple[int, Bytes, Bytes]> shutdown_batch = [];
       worker.send(shutdown_batch);
       await worker.get_done();
       return;
