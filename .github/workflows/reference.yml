@@ -49,6 +49,8 @@ jobs:
         run: |
           set -euo pipefail
           bash -n ci/run-three-backend-actor-guest.sh
+          bash -n ci/test-three-backend-admission-negative.sh
+          bash ci/test-three-backend-admission-negative.sh
           test -f tests/native_actor_isolation_guest.atto
           test -f docs/NATIVE_BACKEND_RELEASE_GATES.md
           set +e
