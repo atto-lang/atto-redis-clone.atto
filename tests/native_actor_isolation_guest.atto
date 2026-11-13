@@ -4,7 +4,9 @@ use namespace guest;
 // Checks two actor-local logical states, not physical heap segregation.
 // Production actor arena allocation, cross-actor pointer denial and physical
 // retirement require separate compiler/runtime instrumentation and tests.
-// No network/FS operation, blocking I/O, or actor-state loan crosses await.
+// No production network/FS I/O; stdout below is TEST-ONLY and may block
+// the root runner. It is NOT evidence of an async I/O implementation.
+// No mutable actor-state loan crosses await.
 define actor ArenaIsolationProbe as
   state {
     let int counter = 0;
