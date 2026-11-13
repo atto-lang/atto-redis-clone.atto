@@ -12,7 +12,7 @@
 
 ## Compiler
 
-Java/GraalVM backend, `oreslang-source.java` main `ecd79fcf57`. The server depends on these merged PRs:
+Java/GraalVM backend, `oreslang-source.java` main `ecd79fcf57` (conformance re-run at `1e9d67b9eb`: 231/231). The server depends on these merged PRs:
 
 | PR | What it enables |
 | --- | --- |
@@ -43,7 +43,20 @@ rust/target/release/resp_conformance 127.0.0.1:6390   # redis-server 8.x: 231 pa
 rust/target/release/resp_conformance 127.0.0.1:6380   # AttoRedis:        231 passed, 0 failed
 ```
 
-## Throughput (diagnostic, not yet an acceptance run)
+## Throughput update: Java main `1e9d67b9eb` (current)
+
+After oreslang-source.java #3050 (memoized suspension analysis), running with `-XX:-DontCompileHugeMethods` via `scripts/run-native-server.sh`, on the same machine and method (median of 3, redis-server in the same run):
+
+| Workload | redis-server | AttoRedis (Java JIT) | Ratio |
+| --- | ---: | ---: | ---: |
+| SET, 50 clients | 177,620 rps | 33,278 rps | 18.7% |
+| GET, 50 clients | 181,324 rps | 28,409 rps | 15.7% |
+| SET, 50 clients, pipeline 16 | 1,652,893 rps | 37,406 rps | 2.3% |
+| GET, 50 clients, pipeline 16 | 2,061,856 rps | 38,735 rps | 1.9% |
+
+A JFR profile is now dominated by tree-walking overhead: `executeBlock`/`executeStatement`/`eval` dispatch, string-keyed environment lookups, and control-flow exceptions. Reaching 70% requires compiling the evaluator to frame slots and specialised Truffle nodes, not further tuning.
+
+## Throughput at `ecd79fcf57` (superseded, diagnostic)
 
 `redis-benchmark -t set,get -c 50 [-P 16] -q`: Apple Silicon laptop, loopback, both servers on the same machine, real Redis with `--save '' --appendonly no`. Median of 3 trials:
 
