@@ -1,5 +1,11 @@
 # Atto Redis Clone
 
+## Standalone Java comparator and checked RESP2 workload
+
+This branch adds `RedisJavaReference`, a volatile, loopback-only Java NIO2 RESP2 server with its own in-memory, binary-safe KV map. It does not launch an Atto guest. Run `bash scripts/bench-java-reference.sh` (JDK 21 and Rust compiler required) to compile and test the reference and execute the Rust-written `bench_resp_checked --java <addr>` client over real TCP. Each trial checks every GET/SET/DEL response, then verifies deletion of remaining keys.
+
+**Do not rank** Java volatile results against the Rust WAL/fsync-always engine as equal durability. CI measurements are smoke evidence only, not reproducible throughput rankings. When original source-org workflows fail before job execution, only exact-source-file SHA-matched carrier tests can be claimed, not full-tree CI.
+
 ## Executed Atto actor RESP2 benchmark — diagnostic, not native parity
 
 The real AttoLang actor executes SET/GET/DEL behind a loopback JDK21 TCP/IPC
