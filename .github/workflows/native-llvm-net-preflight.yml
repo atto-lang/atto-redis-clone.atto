@@ -1,0 +1,45 @@
+name: Native LLVM + .NET script preflight (source only)
+on:
+  pull_request:
+    paths:
+      - 'ci/native-llvm-net-scalar.sh'
+      - 'tests/native/scalar_exact_source.atto'
+      - 'docs/NATIVE_LLVM_NET_ADMISSION.md'
+      - '.github/workflows/native-llvm-net-preflight.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Pin checked-out HEAD and Git tree
+        env:
+          EXPECTED: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo "APP_SOURCE_HEAD=$(git rev-parse HEAD)"
+          echo "APP_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
+          echo "FIXTURE_BLOB=$(git hash-object tests/native/scalar_exact_source.atto)"
+          test "$(git hash-object tests/native/scalar_exact_source.atto)" = "$(git rev-parse HEAD:tests/native/scalar_exact_source.atto)"
+      - name: Syntax and negative missing-pin admission
+        run: |
+          set -euo pipefail
+          bash -n ci/native-llvm-net-scalar.sh
+          if env -u ATTO_APP_EXPECTED_SHA -u ATTO_APP_EXPECTED_TREE \
+             bash ci/native-llvm-net-scalar.sh both > /tmp/native-preflight.out 2> /tmp/native-preflight.err; then
+            echo 'UNSAFE: missing exact source pins were admitted!' >&2
+            exit 1
+          fi
+          test -s /tmp/native-preflight.err
+          echo 'SOURCE_ONLY_NATIVE_SCRIPT_PREFLIGHT=PASS'
+          echo 'REAL_LLVM_COMPILER_EXECUTED=false'
+          echo 'REAL_NET_NATIVEAOT_COMPILER_EXECUTED=false'
+          echo 'REAL_ATTO_BROKER_EXECUTED=false'
