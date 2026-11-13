@@ -41,9 +41,22 @@ run_native() {
 if [[ "$mode" == llvm || "$mode" == both ]]; then
   llvm="$(cd -- "$ATTO_LLVM_CHECKOUT" && pwd -P)"
   check_tree LLVM "$llvm" "$ATTO_LLVM_EXPECTED_SHA" "$ATTO_LLVM_EXPECTED_TREE"
-  [[ -x "$llvm/build/oreslang-llvmc" && -x "$llvm/build/oreslang-no-gc-ir-audit" ]] || { echo 'LLVM compiler and no-GC auditor NOT_EXECUTED' >&2; exit 69; }
-  command -v clang >/dev/null || { echo 'LLVM: clang missing' >&2; exit 69; }
+  # Build both tools from the exact checked-out tree; stale/foreign binaries
+  # are not acceptable provenance for native source-to-AOT execution.
+  for tool in clang rustc cmake llvm-config; do
+    command -v "$tool" >/dev/null || { echo "LLVM: $tool missing" >&2; exit 69; }
+  done
+  cmake -S "$llvm" -B "$work/llvm-build" -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=ON -DLLVM_DIR="$(llvm-config --cmakedir)" >"$work/llvm-configure.log"
+  cmake --build "$work/llvm-build" --target oreslang-llvmc \
+    oreslang-no-gc-ir-audit-build --parallel 2 >"$work/llvm-build.log"
+  compiler="$work/llvm-build/oreslang-llvmc"
+  auditor="$work/llvm-build/oreslang-no-gc-ir-audit"
+  [[ -x "$compiler" && -x "$auditor" ]] || { echo 'Pinned-source LLVM compiler/auditor not built' >&2; exit 69; }
+  echo "LLVM_COMPILER_BINARY_SHA256=$(sha256sum "$compiler" | cut -d' ' -f1)"
+  echo "LLVM_AUDITOR_BINARY_SHA256=$(sha256sum "$auditor" | cut -d' ' -f1)"
   for level in 0 2; do
+    ORESLANG_LLVMC="$compiler" ORES_NO_GC_IR_AUDIT="$auditor" \
     ORESLANG_AOT_LTO=off ORESLANG_LLVM_AOT_OPT_LEVEL="$level" \
       bash "$llvm/scripts/compile-aot.sh" "$fixture" "$work/llvm-O$level" >"$work/llvm-O$level.compile.log"
     run_native "LLVM_O$level" "$work/llvm-O$level" 42 ''
