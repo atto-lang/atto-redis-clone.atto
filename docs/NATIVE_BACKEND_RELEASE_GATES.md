@@ -24,7 +24,10 @@ For optional zero-copy shared regions, the compiler/runtime must issue
 unforgeable bounded (region identity, generation, offset, length, rights,
 owner incarnation) capabilities. A reader loan allows concurrent readers;
 a writer loan requires **zero concurrent readers and exactly one writer**.
-Admission is atomic with mailbox transfer and quota accounting. A writer
+Admission is atomic with mailbox transfer and quota accounting. Shared reader/writer acquisition is nonparking: a conflicting loan must
+fail immediately with bounded backpressure or suspend an actor-owned
+continuation. It must never spin on a lock, park an actor scheduler worker,
+or offload lock waiting to a supervisor or foreign thread pool. A writer
 must release its exclusive loan before await, cancellation, actor shutdown or
 cross-domain transfer. A read loan across suspension is legal only with a
 runtime-enforced lifetime pin and no mutable alias. Region destruction waits
