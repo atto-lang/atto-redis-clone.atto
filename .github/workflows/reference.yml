@@ -44,6 +44,20 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Validate three-backend admission harness (SOURCE ONLY; native NOT_EXECUTED)
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ci/run-three-backend-actor-guest.sh
+          test -f tests/native_actor_isolation_guest.atto
+          test -f docs/NATIVE_BACKEND_RELEASE_GATES.md
+          set +e
+          bash ci/run-three-backend-actor-guest.sh >"$RUNNER_TEMP/backends.out" 2>"$RUNNER_TEMP/backends.err"
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          ! grep -Fq "THREE_BACKEND_LOGICAL_ACTOR_GUEST=EXECUTED_PASS" "$RUNNER_TEMP/backends.out"
+          echo "JAVA_LLVM_NET_GUEST_EXECUTED=false"
       - name: Compile actual RESP2 bridge and source-free contract tests
         run: |
           mkdir -p build/transport
