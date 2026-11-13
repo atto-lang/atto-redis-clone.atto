@@ -25,6 +25,11 @@ fixture="$root/tests/native/scalar_exact_source.atto"
 blob="$(git -C "$root" hash-object -- "$fixture")"
 [[ "$blob" == "$(git -C "$root" rev-parse 'HEAD:tests/native/scalar_exact_source.atto')" ]] || { echo 'Fixture bytes changed' >&2; exit 65; }
 echo "ATTO_SCALAR_SOURCE_BLOB=$blob"
+negative_actor="$root/tests/native/net_actor_reject.atto"
+[[ -f "$negative_actor" && ! -L "$negative_actor" ]] || { echo 'NOT_EXECUTED: missing/linked native .NET actor negative fixture' >&2; exit 66; }
+negative_blob="$(git -C "$root" hash-object -- "$negative_actor")"
+[[ "$negative_blob" == "$(git -C "$root" rev-parse 'HEAD:tests/native/net_actor_reject.atto')" ]] || { echo 'Native actor negative fixture bytes changed' >&2; exit 65; }
+echo "ATTO_NATIVE_ACTOR_NEGATIVE_BLOB=$negative_blob"
 work="$(mktemp -d)"
 trap 'rm -rf -- "$work"' EXIT
 run_native() {
@@ -91,6 +96,24 @@ if [[ "$mode" == net || "$mode" == both ]]; then
   exe="$net/artifacts/atto-broker-parity/linux-x64/oreslang-app"
   (cd "$net" && bash verification/assert-linux-native-release.sh "$exe") >"$work/net-native-proof.log"
   run_native NET_NATIVE_AOT "$exe" 0 $'42\n'
+  # NativeAOT compiler must fail closed on guest actor syntax until the
+  # backend genuinely lowers and runs actor-owned state and continuations.
+  netc="$net/artifacts/compiler/linux-x64/oresnet"
+  (cd "$net" && bash verification/assert-linux-native-release.sh "$netc") >"$work/net-native-compiler-proof.log"
+  for operation in check compile; do
+    args=("$netc" "$operation" "$negative_actor")
+    if [[ "$operation" == compile ]]; then
+      args+=(--out "$work/OresGenerated.dll")
+    fi
+    status=0
+    timeout --kill-after=2s 15s "${args[@]}" >"$work/net-actor-$operation.out" 2>"$work/net-actor-$operation.err" || status=$?
+    [[ "$status" -eq 1 && ! -s "$work/net-actor-$operation.out" &&
+       -s "$work/net-actor-$operation.err" && ! -e "$work/OresGenerated.dll" ]] ||
+      { echo "UNSAFE: .NET native actor $operation was admitted, hung, or emitted output (status=$status)" >&2; exit 1; }
+    grep -Fq 'oresnet:' "$work/net-actor-$operation.err" ||
+      { echo ".NET native actor $operation rejected without an explicit compiler diagnostic" >&2; exit 1; }
+    echo "NET_NATIVE_ACTOR_${operation^^}=REJECTED_AS_EXPECTED"
+  done
 fi
 echo 'ATTO_BROKER_GUEST_SCALAR_ONLY=true'
 echo 'ATTO_NATIVE_ACTOR_HEAP_CERTIFIED=false'
