@@ -1,0 +1,16 @@
+// Deliberately unsupported by the shipped .NET scalar compiler.
+// The NativeAOT compiler must reject both check and compile without CIL output.
+// This is accepted only by the experimental LLVM source-actor subset.
+define actor Counter as {
+  let total: int = 0;
+  pub fnc on_message(int n): int {
+    total = total + n;
+    return total;
+  }
+}
+pub fnc main(): int {
+  const worker = spawn Counter();
+  worker.send(42);
+  stop worker;
+  return 43;
+}
