@@ -55,7 +55,14 @@ The identical `tests/native_actor_isolation_guest.atto` source exists in
 all four broker repositories. `ci/run-three-backend-actor-guest.sh`
 requires the exact application head/tree and guest Git blob; independently
 pinned Java/Graal, LLVM and .NET compiler heads/trees; and SHA256-pinned,
-checked-out compiler-backed launchers. No backend may be skipped. A
+checked-out compiler-backed launchers. In addition, each compiler checkout
+must be its own Git worktree root (never the application or a reused backend
+checkout), contain the corresponding Java/LLVM/.NET source manifest in pinned
+HEAD, and provide a reviewed executable launcher whose exact blob is tracked
+in that HEAD. A generated/untracked marker-echoing wrapper cannot qualify.
+Three independent adversarial denials run in source-only CI via
+`ci/test-three-backend-admission-negative.sh`; passing those negatives is
+NOT evidence that any native guest actually executed. No backend may be skipped. A
 backend-specific launcher must **compile and execute** the source; using the
 Java VM to simulate LLVM/.NET, a host-side Rust/Java actor, or a marker-echoing
 script is explicitly invalid. An independent review of each launcher,
