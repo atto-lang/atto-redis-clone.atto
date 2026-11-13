@@ -130,17 +130,20 @@ fn median(samples: &[f64]) -> f64 {
     }
 }
 
+fn field<'a>(receipt: &'a Receipt, key: &str) -> &'a str {
+    receipt.fields.get(key).map(String::as_str).unwrap_or("")
+}
+
 fn evaluate(atto: &Receipt, reference: &Receipt) -> Result<f64, String> {
-    let get = |r: &Receipt, key: &str| r.fields.get(key).map(String::as_str).unwrap_or("");
-    if !["java", "llvm", "dotnet"].contains(&get(atto, "backend"))
-        || get(reference, "backend") != "rust"
+    if !["java", "llvm", "dotnet"].contains(&field(atto, "backend"))
+        || field(reference, "backend") != "rust"
     {
         return Err(invalid("expected real Atto backend versus Rust reference"));
     }
-    if get(atto, "native_guest") != "true" || get(atto, "nonblocking_io") != "true" {
+    if field(atto, "native_guest") != "true" || field(atto, "nonblocking_io") != "true" {
         return Err(invalid("Atto native guest and nonblocking IO required"));
     }
-    if get(reference, "native_guest") != "false" {
+    if field(reference, "native_guest") != "false" {
         return Err(invalid("reference cannot be substituted for Atto guest"));
     }
     for key in [
@@ -154,7 +157,7 @@ fn evaluate(atto: &Receipt, reference: &Receipt) -> Result<f64, String> {
         "payload_bytes",
         "machine_id",
     ] {
-        if get(atto, key) != get(reference, key) {
+        if field(atto, key) != field(reference, key) {
             return Err(invalid("benchmark configurations do not match"));
         }
     }
