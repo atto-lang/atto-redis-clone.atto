@@ -48,5 +48,19 @@ jobs:
         run: |
           mkdir -p build/transport
           javac --release 21 -Xlint:all -d build/transport bridge/AttoRedisRespBridge.java bridge/AttoRedisRespBridgeContractTest.java
+      - name: Legacy blocking TCP bridges are denied by default
+        shell: bash
+        run: |
+          set -euo pipefail
+          for script in scripts/run-atto-redis-loopback.sh scripts/run-atto-redis-actor-loopback.sh; do
+            set +e
+            bash "$script" /does-not-exist >"$RUNNER_TEMP/legacy.out" 2>"$RUNNER_TEMP/legacy.err"
+            rc=$?
+            set -e
+            test "$rc" -eq 77
+            grep -Fq "BLOCKED: legacy synchronous TCP/stdio bridge" "$RUNNER_TEMP/legacy.err"
+          done
+          echo "LEGACY_BLOCKING_BRIDGES_DEFAULT=DENIED"
+          echo "ATTO_NATIVE_ASYNC_GUEST_EXECUTED=false"
       - name: Execute bridge protocol, binary, limit, and fail-closed regression tests
         run: java -cp build/transport AttoRedisRespBridgeContractTest
