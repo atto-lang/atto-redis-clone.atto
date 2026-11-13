@@ -31,7 +31,18 @@ need_sha ATTO_GUEST_BLOB "$ATTO_GUEST_BLOB"
 test "$(git -C "$root" rev-parse HEAD)" = "$ATTO_APP_SHA"
 test "$(git -C "$root" rev-parse 'HEAD^{tree}')" = "$ATTO_APP_TREE"
 test "$(git -C "$root" hash-object "$guest")" = "$ATTO_GUEST_BLOB"
-git -C "$root" diff --quiet HEAD -- tests/native_actor_isolation_guest.atto
+# The receipt must describe the actual entire application checkout, not
+# merely one clean guest file inside a dirty/overridden repository.
+git -C "$root" diff --quiet HEAD -- || {
+  echo "DIRTY_APPLICATION_TREE_DENIED" >&2
+  exit 65
+}
+# Untracked source/harness files can override imports or helper entrypoints.
+# Only a reviewed, tracked checkout may be admitted as application evidence.
+if [[ -n "$(git -C "$root" ls-files --others --exclude-standard -- src tests ci guest interop-native)" ]]; then
+  echo "UNTRACKED_APPLICATION_INPUTS_DENIED" >&2
+  exit 65
+fi
 
 command -v timeout >/dev/null || { echo "MISSING: real watchdog timeout" >&2; exit 69; }
 command -v sha256sum >/dev/null || { echo "MISSING: sha256sum" >&2; exit 69; }
