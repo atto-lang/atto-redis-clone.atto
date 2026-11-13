@@ -55,6 +55,48 @@ if [[ "$mode" == llvm || "$mode" == both ]]; then
   [[ -x "$compiler" && -x "$auditor" ]] || { echo 'Pinned-source LLVM compiler/auditor not built' >&2; exit 69; }
   echo "LLVM_COMPILER_BINARY_SHA256=$(sha256sum "$compiler" | cut -d' ' -f1)"
   echo "LLVM_AUDITOR_BINARY_SHA256=$(sha256sum "$auditor" | cut -d' ' -f1)"
+  # Actual Atto source-actor -> pinned LLVM compiler -> Clang native guest suite.
+  # This tests compiled actor scheduler/owned i64 heaps and reject diagnostics,
+  # not any broker protocol or general Bytes/Map/native .NET actor support.
+  command -v python3 >/dev/null || { echo 'LLVM: python3 missing' >&2; exit 69; }
+  [[ -f "$llvm/tests/source_actor_e2e.py" ]] || { echo 'LLVM native actor harness missing' >&2; exit 69; }
+  if ! timeout --kill-after=10s 300s python3 -I "$llvm/tests/source_actor_e2e.py" \
+       --compiler "$compiler" --clang "$(command -v clang)" --root "$llvm" \
+       >"$work/llvm-source-actors.log" 2>&1; then
+    cat "$work/llvm-source-actors.log" >&2
+    echo 'LLVM native source actor suite failed or timed out' >&2
+    exit 1
+  fi
+  grep -Fqx 'PASS current-source actor lowering and physical heap reclamation' "$work/llvm-source-actors.log" ||
+    { echo 'LLVM actor suite missing terminal receipt' >&2; exit 1; }
+  actor_count="$(grep -c '^PASS native source actor:' "$work/llvm-source-actors.log" || true)"
+  [[ "$actor_count" =~ ^[0-9]+$ && "$actor_count" -ge 16 ]] ||
+    { echo "LLVM actor suite insufficient positive cases: $actor_count" >&2; exit 1; }
+  grep -Eq '^PASS [1-9][0-9]* no-IR actor ownership and await boundary cases    ORESLANG_LLVMC="$compiler" ORES_NO_GC_IR_AUDIT="$auditor" \
+    ORESLANG_AOT_LTO=off ORESLANG_LLVM_AOT_OPT_LEVEL="$level" \
+      bash "$llvm/scripts/compile-aot.sh" "$fixture" "$work/llvm-O$level" >"$work/llvm-O$level.compile.log"
+    run_native "LLVM_O$level" "$work/llvm-O$level" 42 ''
+  done
+fi
+if [[ "$mode" == net || "$mode" == both ]]; then
+  net="$(cd -- "$ATTO_NET_CHECKOUT" && pwd -P)"
+  check_tree NET "$net" "$ATTO_NET_EXPECTED_SHA" "$ATTO_NET_EXPECTED_TREE"
+  command -v dotnet >/dev/null || { echo '.NET SDK missing' >&2; exit 69; }
+  (cd "$net" && bash scripts/publish-linux.sh "$fixture" artifacts/atto-broker-parity) >"$work/net-build.log"
+  exe="$net/artifacts/atto-broker-parity/linux-x64/oreslang-app"
+  (cd "$net" && bash verification/assert-linux-native-release.sh "$exe") >"$work/net-native-proof.log"
+  run_native NET_NATIVE_AOT "$exe" 0 $'42\n'
+fi
+echo 'ATTO_BROKER_GUEST_SCALAR_ONLY=true'
+echo 'ATTO_NATIVE_ACTOR_HEAP_CERTIFIED=false'
+echo 'ATTO_NATIVE_SHARED_RW_LOANS_CERTIFIED=false'
+echo 'ATTO_NATIVE_NONBLOCKING_BROKER_CERTIFIED=false'
+echo 'ATTO_NATIVE_DURABILITY_CERTIFIED=false'
+ "$work/llvm-source-actors.log" ||
+    { echo 'LLVM actor suite missing negative admission receipt' >&2; exit 1; }
+  echo "LLVM_NATIVE_SOURCE_ACTOR_POSITIVE_CASES=$actor_count"
+  echo 'LLVM_NATIVE_SOURCE_ACTOR_NEGATIVE_CASES=PASS'
+  echo 'LLVM_NATIVE_SOURCE_ACTORS_EXECUTED=PASS'
   for level in 0 2; do
     ORESLANG_LLVMC="$compiler" ORES_NO_GC_IR_AUDIT="$auditor" \
     ORESLANG_AOT_LTO=off ORESLANG_LLVM_AOT_OPT_LEVEL="$level" \
