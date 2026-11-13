@@ -59,5 +59,33 @@ Preflight CI only tests shell syntax, Git fixture identity and rejection of
 missing source pins. Native compiler and broker execution remain NOT_EXECUTED
 unless actual end-to-end receipts include exact commit/tree, fixture blobs,
 native binary hashes, nonzero GitHub Actions job steps, tests, and classifications.
-An org with zero runner steps has not run tests. No public/private-source mirror
-or cross-org token bypass is permitted.
+An org with zero runner steps has not run tests. An approved, private,
+byte-identical cross-org tree mirror may be used without cross-org tokens.
+
+## Additional native source-actor admission
+
+A pinned LLVM checkout now runs `tests/source_actor_e2e.py` through its rebuilt
+`oreslang-llvmc` and Clang: at least 16 compiled native source-actor
+positive cases, plus the suite's no-IR negative ownership/await cases.
+The script requires its explicit completion receipts. This exercises
+**LLVM's bounded i64 actor prototype**, not any broker guest, Bytes/Map,
+shared exclusive-writer loan implementation, or production I/O.
+
+After publishing the real .NET NativeAOT compiler and scalar guest, the gate
+also runs the compiler itself against the pinned `net_actor_reject.atto`
+fixture twice: `check` and `compile`. Both must fail with diagnostics,
+no stdout, and no generated assembly. This is *negative admission*, not a
+claim that .NET actor lowering works. The .NET compiler must gain an
+independently verified actor-native lane before this check is replaced.
+
+The CI workflow is **source-only** and cannot emit these native receipts.
+Successful native receipts require a properly provisioned Linux runner,
+pinned private LLVM and .NET checkouts, and execution of
+`bash ci/native-llvm-net-scalar.sh both`.
+
+If a source organization has zero-step runner admission failures, an
+**approved private** funded test repository can receive an exact, reviewed
+commit-tree mirror using the GitHub connector, with source and destination
+Git tree/blob identities verified before executing. Never put private
+compiler sources into a public repository, embed a cross-org checkout
+token, or accept an approximate copy or host-only result as native proof.
