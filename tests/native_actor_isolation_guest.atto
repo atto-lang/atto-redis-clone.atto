@@ -12,22 +12,18 @@ define actor ArenaIsolationProbe as
     let int counter = 0;
   }
 
-  critical increment_first(): bool {
-    let bool first = false;
-    self.handle_state(|mut s| -> {
-      s.counter = s.counter + 1;
-      first = s.counter == 1;
-    });
-    return first;
-  }
-
   receive(ActorMail<int> mail): void {
     if mail.value == 1 then
-      if self.increment_first() then
-        self.send(1);
-      else
-        self.send(0);
-      fi
+      self.handle_state(critical-write |s| -> {
+        s.counter = s.counter + 1;
+      });
+      // Target lowering: guarded i64 read, detached copy, critical exit,
+      // then bounded mailbox send. Direct send with live state loan is DENIED.
+      // This source shape is not executable parity evidence until the
+      // compiler proves the snapshot+exit+send rewrite on this exact guest.
+      self.handle_state(critical-read |s| -> {
+        self.send(s.counter);
+      });
     fi
     self.end();
     return;
