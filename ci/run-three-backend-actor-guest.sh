@@ -37,6 +37,9 @@ command -v timeout >/dev/null || { echo "MISSING: real watchdog timeout" >&2; ex
 command -v sha256sum >/dev/null || { echo "MISSING: sha256sum" >&2; exit 69; }
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+# An application checkout, nested subdirectory or reused compiler checkout
+# must never impersonate an independent native backend.
+declare -a accepted_compiler_roots=()
 
 run_backend() {
   local backend="$1" home_var="ATTO_${1}_COMPILER_CHECKOUT"
@@ -56,6 +59,32 @@ run_backend() {
   }
   local compiler
   compiler="$(cd "$checkout" && pwd -P)"
+  local git_root expected_manifest
+  git_root="$(git -C "$compiler" rev-parse --show-toplevel 2>/dev/null)" || {
+    echo "${backend}=DENIED: not a standalone Git compiler checkout" >&2; return 65;
+  }
+  [[ "$git_root" == "$compiler" && "$compiler" != "$root" ]] || {
+    echo "${backend}=DENIED: nested or application checkout is not an independent compiler" >&2
+    return 65
+  }
+  for prior in "${accepted_compiler_roots[@]}"; do
+    [[ "$compiler" != "$prior" ]] || {
+      echo "${backend}=DENIED: reused compiler checkout across backend roles" >&2
+      return 65
+    }
+  done
+  case "$backend" in
+    JAVA) expected_manifest="pom.xml" ;;
+    LLVM) expected_manifest="CMakeLists.txt" ;;
+    NET) expected_manifest="compiler/Ores.Net.Compiler/Ores.Net.Compiler.csproj" ;;
+    *) echo "DENIED: unknown compiler role" >&2; return 65 ;;
+  esac
+  # Require a compiler-family source manifest in the pinned Git tree, not an
+  # untracked stand-in copied into an arbitrary app checkout.
+  git -C "$compiler" cat-file -e "HEAD:$expected_manifest" 2>/dev/null || {
+    echo "${backend}=DENIED: expected compiler manifest absent from pinned tree" >&2
+    return 65
+  }
   test "$(git -C "$compiler" rev-parse HEAD)" = "$sha"
   test "$(git -C "$compiler" rev-parse 'HEAD^{tree}')" = "$tree"
   git -C "$compiler" diff --quiet HEAD --
@@ -70,7 +99,20 @@ run_backend() {
     echo "${backend}=NOT_EXECUTED: launcher must live inside pinned checkout" >&2
     return 65
   }
+  # An untracked generated wrapper can print the expected marker without
+  # compiling anything. The launcher entrypoint must exist in pinned HEAD.
+  # Its reviewed implementation may build a native binary in the CI workspace.
+  local relative_runner="${actual_runner#"$compiler"/}"
+  git -C "$compiler" cat-file -e "HEAD:$relative_runner" 2>/dev/null || {
+    echo "${backend}=DENIED: launcher is not tracked in pinned compiler tree" >&2
+    return 65
+  }
+  test "$(git -C "$compiler" rev-parse "HEAD:$relative_runner")" = "$(git -C "$compiler" hash-object "$actual_runner")" || {
+    echo "${backend}=DENIED: launcher differs from pinned Git blob" >&2
+    return 65
+  }
   test "$(sha256sum "$actual_runner" | cut -d' ' -f1)" = "$digest"
+  accepted_compiler_roots+=("$compiler")
   echo "${backend}_COMPILER_SHA=$sha"
   echo "${backend}_COMPILER_TREE=$tree"
   echo "${backend}_LAUNCHER_SHA256=$digest"
