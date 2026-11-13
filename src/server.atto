@@ -1,0 +1,307 @@
+// AttoRedis: native AttoLang RESP2 server (spec chapter 26 primitives only).
+//
+// All protocol work is AttoLang: RESP2 framing, command dispatch and reply
+// encoding happen here, over move-only Bytes. The runtime provides only
+// async TCP (listen/accept/read/write) and Bytes. No host RESP codec is used.
+//
+// Concurrency: the accept loop moves each connection into its own session
+// task. One store task exclusively owns the key space (Map<Bytes, Bytes>),
+// like single-threaded Redis; sessions reach it by message passing, each
+// request carrying the session's reply channel. No shared mutable memory.
+//
+// Supported: PING [msg], ECHO msg, GET, SET, DEL k [k...], EXISTS k [k...],
+// QUIT. RESP2 arrays of bulk strings only (what Redis clients send).
+// Limits: 1 MiB per bulk string (Bytes bound), 1024 arguments per command.
+
+// ---- reply encoding --------------------------------------------------
+
+pub fnc decimal(int value): Bytes {
+  // Integer division is not yet specified portably (spec 17), so digits are
+  // produced by subtracting powers of ten: at most 9 steps per digit.
+  if value == 0 then return Bytes.from_list([48]); fi
+  let int n = value;
+  let mut List<int> digits = [];
+  if n < 0 then
+    digits.add(45);
+    n = 0 - n;
+  fi
+  val powers = [1000000000000000000, 100000000000000000, 10000000000000000,
+                1000000000000000, 100000000000000, 10000000000000, 1000000000000,
+                100000000000, 10000000000, 1000000000, 100000000, 10000000, 1000000,
+                100000, 10000, 1000, 100, 10, 1];
+  let bool started = false;
+  let int p = 0;
+  loop {
+    if p == powers.size then break; fi
+    val int power = powers.get(p);
+    let int digit = 0;
+    loop {
+      if n < power then break; fi
+      n = n - power;
+      digit = digit + 1;
+    }
+    if digit > 0 || started || power == 1 then
+      digits.add(48 + digit);
+      started = true;
+    fi
+    p = p + 1;
+  }
+  return Bytes.from_list(digits);
+}
+
+pub fnc crlf(): Bytes { return Bytes.from_list([13, 10]); }
+
+pub fnc simple(string text): Bytes {
+  return Bytes.from_string("+" + text).concat(crlf());
+}
+
+pub fnc error_reply(string text): Bytes {
+  return Bytes.from_string("-" + text).concat(crlf());
+}
+
+pub fnc integer_reply(int value): Bytes {
+  return Bytes.from_list([58]).concat(decimal(value)).concat(crlf());
+}
+
+pub fnc bulk(Bytes value): Bytes {
+  val header = Bytes.from_list([36]).concat(decimal(value.size())).concat(crlf());
+  return header.concat(value).concat(crlf());
+}
+
+pub fnc null_bulk(): Bytes { return Bytes.from_list([36, 45, 49, 13, 10]); }
+
+// ---- command names ---------------------------------------------------
+
+// ASCII case-insensitive comparison against an upper-case command name.
+pub fnc is_command(borrow Bytes word, string upper): bool {
+  val want = Bytes.from_string(upper);
+  if word.size() != want.size() then return false; fi
+  let int i = 0;
+  loop {
+    if i == word.size() then return true; fi
+    let int c = word.byte_at(i);
+    if c >= 97 && c <= 122 then c = c - 32; fi
+    if c != want.byte_at(i) then return false; fi
+    i = i + 1;
+  }
+}
+
+// ---- store task ------------------------------------------------------
+
+// Request: (op, key, value, reply). op: 0 stop, 1 GET, 2 SET, 3 DEL, 4 EXISTS.
+// Reply: (status, payload). status: 0 nil, 1 value, 2 count in payload size.
+pub async fnc store_loop(Channel<Tuple[int, Bytes, Bytes, Channel<Tuple[int, Bytes, int]>]> requests): void {
+  let Map<Bytes, Bytes> data = ~map<Bytes, Bytes>();
+  loop {
+    [const op, const key, const value, const reply] = await (nb readch requests);
+    if op == 0 then return; fi
+    if op == 1 then
+      val found = data.get_optional(key);
+      if found.is_some() then
+        await (nb writech reply, (1, found.unwrap(), 0));
+      else
+        await (nb writech reply, (0, Bytes.empty(), 0));
+      fi
+    elseif op == 2 then
+      data.set(key, value);
+      await (nb writech reply, (1, Bytes.empty(), 0));
+    elseif op == 3 then
+      if data.delete(key) then
+        await (nb writech reply, (2, Bytes.empty(), 1));
+      else
+        await (nb writech reply, (2, Bytes.empty(), 0));
+      fi
+    elseif op == 4 then
+      if data.get_optional(key).is_some() then
+        await (nb writech reply, (2, Bytes.empty(), 1));
+      else
+        await (nb writech reply, (2, Bytes.empty(), 0));
+      fi
+    fi
+  }
+}
+
+// ---- RESP2 framing ---------------------------------------------------
+
+// Parse a non-negative decimal in [start, limit). Returns -1 if malformed.
+pub fnc parse_count(borrow Bytes buf, int start, int limit): int {
+  if limit <= start || limit - start > 10 then return -1; fi
+  let int n = 0;
+  let int i = start;
+  loop {
+    if i == limit then return n; fi
+    val int c = buf.byte_at(i);
+    if c < 48 || c > 57 then return -1; fi
+    n = n * 10 + (c - 48);
+    i = i + 1;
+  }
+}
+
+// Find the CRLF that ends a header starting at `start`; -1 if incomplete,
+// -2 if a bare LF or an over-long header is seen.
+pub fnc line_end(borrow Bytes buf, int start): int {
+  val int lf = buf.index_of(10, start);
+  if lf == -1 then
+    if buf.size() - start > 32 then return -2; fi
+    return -1;
+  fi
+  if lf == start || buf.byte_at(lf - 1) != 13 then return -2; fi
+  if lf - start > 32 then return -2; fi
+  return lf - 1;
+}
+
+// Try to parse one complete command at `pos`. Returns (end offset, args):
+// end is 0 if more bytes are needed or -1 on a protocol error, and args is
+// filled only when the whole command is present.
+pub fnc parse_command(borrow Bytes buf, int pos): Tuple[int, List[Bytes]] {
+  let mut List<Bytes> args = [];
+  if pos >= buf.size() then return (0, args); fi
+  if buf.byte_at(pos) != 42 then return (-1, args); fi
+  val int head = line_end(rt borrow buf, pos + 1);
+  if head == -2 then return (-1, args); fi
+  if head == -1 then return (0, args); fi
+  val int argc = parse_count(rt borrow buf, pos + 1, head);
+  if argc < 1 || argc > 1024 then return (-1, args); fi
+  let int cursor = head + 2;
+  let int index = 0;
+  let mut List<int> starts = [];
+  let mut List<int> lengths = [];
+  loop {
+    if index == argc then break; fi
+    if cursor >= buf.size() then return (0, args); fi
+    if buf.byte_at(cursor) != 36 then return (-1, args); fi
+    val int line = line_end(rt borrow buf, cursor + 1);
+    if line == -2 then return (-1, args); fi
+    if line == -1 then return (0, args); fi
+    val int length = parse_count(rt borrow buf, cursor + 1, line);
+    if length < 0 || length > 1048576 then return (-1, args); fi
+    val int body = line + 2;
+    if body + length + 2 > buf.size() then return (0, args); fi
+    if buf.byte_at(body + length) != 13 || buf.byte_at(body + length + 1) != 10 then return (-1, args); fi
+    starts.add(body);
+    lengths.add(length);
+    cursor = body + length + 2;
+    index = index + 1;
+  }
+  let int k = 0;
+  loop {
+    if k == argc then break; fi
+    args.add(buf.slice(starts.get(k), starts.get(k) + lengths.get(k)));
+    k = k + 1;
+  }
+  return (cursor, args);
+}
+
+// ---- session task ----------------------------------------------------
+
+pub async fnc ask(Channel<Tuple[int, Bytes, Bytes, Channel<Tuple[int, Bytes, int]>]> requests,
+                  Channel<Tuple[int, Bytes, int]> reply,
+                  int op, Bytes key, Bytes value): Tuple[int, Bytes, int] {
+  await (nb writech requests, (op, key, value, reply));
+  return await (nb readch reply);
+}
+
+// Execute one parsed command. Returns (reply bytes, close-after-write).
+pub async fnc execute(Channel<Tuple[int, Bytes, Bytes, Channel<Tuple[int, Bytes, int]>]> requests,
+                      Channel<Tuple[int, Bytes, int]> reply,
+                      List<Bytes> args): Tuple[Bytes, bool] {
+  val int argc = args.size;
+  val name = args.get(0).copy();
+  if is_command(rt borrow name, "GET") then
+    if argc != 2 then return (error_reply("ERR wrong number of arguments for 'get' command"), false); fi
+    [const status, const payload, const ignored] = await ask(requests, reply, 1, args.get(1).copy(), Bytes.empty());
+    if status == 0 then return (null_bulk(), false); fi
+    return (bulk(payload), false);
+  fi
+  if is_command(rt borrow name, "SET") then
+    if argc != 3 then return (error_reply("ERR syntax error"), false); fi
+    await ask(requests, reply, 2, args.get(1).copy(), args.get(2).copy());
+    return (simple("OK"), false);
+  fi
+  if is_command(rt borrow name, "DEL") || is_command(rt borrow name, "EXISTS") then
+    if argc < 2 then return (error_reply("ERR wrong number of arguments"), false); fi
+    let int op = 3;
+    if is_command(rt borrow name, "EXISTS") then op = 4; fi
+    let int total = 0;
+    let int i = 1;
+    loop {
+      if i == argc then break; fi
+      [const status, const payload, const count] = await ask(requests, reply, op, args.get(i).copy(), Bytes.empty());
+      total = total + count;
+      i = i + 1;
+    }
+    return (integer_reply(total), false);
+  fi
+  if is_command(rt borrow name, "PING") then
+    if argc == 1 then return (simple("PONG"), false); fi
+    if argc == 2 then return (bulk(args.get(1).copy()), false); fi
+    return (error_reply("ERR wrong number of arguments for 'ping' command"), false);
+  fi
+  if is_command(rt borrow name, "ECHO") then
+    if argc != 2 then return (error_reply("ERR wrong number of arguments for 'echo' command"), false); fi
+    return (bulk(args.get(1).copy()), false);
+  fi
+  if is_command(rt borrow name, "QUIT") then return (simple("OK"), true); fi
+  return (error_reply("ERR unknown command"), false);
+}
+
+pub async fnc session(NioConnection socket,
+                      Channel<Tuple[int, Bytes, Bytes, Channel<Tuple[int, Bytes, int]>]> requests): void {
+  val Channel<Tuple[int, Bytes, int]> reply = Channel.new<Tuple[int, Bytes, int]>(1);
+  let pending = Bytes.empty();
+  loop {
+    val chunk = await socket.read_owned_bytes_async(65536);
+    if chunk.size() == 0 then
+      await socket.close_async();
+      return;
+    fi
+    pending = pending.concat(chunk);
+    if pending.size() > 2097152 then
+      await socket.write_owned_bytes_async(error_reply("ERR Protocol error: request too large"));
+      await socket.close_async();
+      return;
+    fi
+    let out = Bytes.empty();
+    let int pos = 0;
+    let bool close_after = false;
+    loop {
+      [const next, let args] = parse_command(rt borrow pending, pos);
+      if next == 0 then break; fi
+      if next == -1 then
+        out = out.concat(error_reply("ERR Protocol error"));
+        close_after = true;
+        break;
+      fi
+      pos = next;
+      [const response, const quit] = await execute(requests, reply, args);
+      out = out.concat(response);
+      if quit then
+        close_after = true;
+        break;
+      fi
+    }
+    if out.size() > 0 then await socket.write_owned_bytes_async(out); fi
+    if close_after then
+      await socket.close_async();
+      return;
+    fi
+    pending = pending.slice(pos, pending.size());
+  }
+}
+
+// ---- entry point -----------------------------------------------------
+
+pub async routine main(): void {
+  val listener = await network.listen_async("127.0.0.1", 6380);
+  val Channel<Tuple[int, Bytes, Bytes, Channel<Tuple[int, Bytes, int]>]> requests =
+      Channel.new<Tuple[int, Bytes, Bytes, Channel<Tuple[int, Bytes, int]>]>(1024);
+  stdio.println("atto-redis listening on 127.0.0.1:6380");
+  task scope {
+    let Future<void> store = task { await store_loop(requests); return; };
+    loop {
+      val socket = await listener.accept_async();
+      let Future<void> client = task { await session(socket, requests); return; };
+    }
+  }
+  return;
+}
