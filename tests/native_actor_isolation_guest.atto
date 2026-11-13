@@ -17,13 +17,11 @@ define actor ArenaIsolationProbe as
       self.handle_state(critical-write |s| -> {
         s.counter = s.counter + 1;
       });
-      // Target lowering: guarded i64 read, detached copy, critical exit,
-      // then bounded mailbox send. Direct send with live state loan is DENIED.
-      // This source shape is not executable parity evidence until the
-      // compiler proves the snapshot+exit+send rewrite on this exact guest.
-      self.handle_state(critical-read |s| -> {
-        self.send(s.counter);
-      });
+      // Critical-read yields a detached Copy scalar. The loan ends before
+      // mailbox publication; actor state and its borrow never escape.
+      // Compiler support for this expression is still an execution gate.
+      val int snapshot = self.handle_state(critical-read |s| -> s.counter);
+      self.send(snapshot);
     fi
     self.end();
     return;
