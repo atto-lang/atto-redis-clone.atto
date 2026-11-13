@@ -2,6 +2,14 @@
 # Local M1: REAL Atto guest executes SET/GET/DEL; JDK21 provides RESP2 TCP transport.
 # This is ephemeral and intentionally loopback only, not the durable native server.
 set -euo pipefail
+# This historical subprocess/stdio bridge performs BLOCKING socket and pipe
+# I/O. It is NOT an async Atto server and MUST NEVER be a default run path.
+# Opt-in is allowed only for loopback-only diagnostic compatibility tests.
+if [[ "${ATTO_ALLOW_BLOCKING_LEGACY_DIAGNOSTIC:-}" != "I_ACCEPT_LOCAL_BLOCKING_IO" ]]; then
+  echo "BLOCKED: legacy synchronous TCP/stdio bridge; use a native Atto async NIO guest instead." >&2
+  echo "For isolated loopback diagnostics ONLY, set ATTO_ALLOW_BLOCKING_LEGACY_DIAGNOSTIC=I_ACCEPT_LOCAL_BLOCKING_IO." >&2
+  exit 77
+fi
 if (( $# < 1 || $# > 2 )); then
   echo "usage: $0 /absolute/oreslang-source.java-checkout [PORT(default=6380)]" >&2
   exit 64
