@@ -9,12 +9,16 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+// macOS clocks are microsecond-grained, so parallel test threads can read
+// the same timestamp; a per-process counter keeps every directory unique.
+static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 struct Temp(PathBuf);
 impl Temp {
     fn new() -> Self {
         let n = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let seq = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let p = std::env::temp_dir().join(format!(
-            "atto-redis-recovery-{}-{n}",
+            "atto-redis-recovery-{}-{n}-{seq}",
             std::process::id()
         ));
         fs::create_dir_all(&p).unwrap();

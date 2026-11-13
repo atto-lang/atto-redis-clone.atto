@@ -1,10 +1,18 @@
 # Atto Redis Clone
 
-## Standalone Java comparator and checked RESP2 workload
+## Native AttoLang RESP2 server, 2026-11-13 (current)
 
-This branch adds `RedisJavaReference`, a volatile, loopback-only Java NIO2 RESP2 server with its own in-memory, binary-safe KV map. It does not launch an Atto guest. Run `bash scripts/bench-java-reference.sh` (JDK 21 and Rust compiler required) to compile and test the reference and execute the Rust-written `bench_resp_checked --java <addr>` client over real TCP. Each trial checks every GET/SET/DEL response, then verifies deletion of remaining keys.
+`src/server.atto` is a Redis-compatible server written entirely in AttoLang: RESP2 parsing, dispatch and replies, with one store task owning a `Map<Bytes, Bytes>` and a session task per connection. It passes **231/231** exact-byte conformance checks (`rust/src/bin/resp_conformance.rs`), the same checks real `redis-server` passes. Throughput on the Java backend is **16–19% of redis-server** without pipelining and about **2%** with pipelining, so the 70% target is **not met**. LLVM and .NET cannot compile it yet. Commands, numbers and causes: [docs/NATIVE_ATTO_SERVER_2026_11_13.md](docs/NATIVE_ATTO_SERVER_2026_11_13.md).
 
-**Do not rank** Java volatile results against the Rust WAL/fsync-always engine as equal durability. CI measurements are smoke evidence only, not reproducible throughput rankings. When original source-org workflows fail before job execution, only exact-source-file SHA-matched carrier tests can be claimed, not full-tree CI.
+Run: `ATTO_JDK=<Labs JDK 25> ATTO_GRAAL_UP=<Graal 25.3.4.1 jars> scripts/run-native-server.sh /abs/oreslang-source.java` (listens on 127.0.0.1:6380).
+
+The older sections below describe JDK-bridged experiments. Their RESP parsing ran in host Java, so their throughput figures are **not** AttoLang performance.
+
+## Standalone Java reference comparator — volatile, host-only
+
+`reference/java/RedisJavaReference.java` is an independent loopback-only NIO2 RESP2 server with an in-memory, binary-safe KV store. Run `bash scripts/bench-java-reference.sh` (JDK 21 and Rust required) to exercise the checked Rust client against live Java TCP and verify every SET/GET/DEL reply and trial cleanup.
+
+This reference does **not** execute Atto, and has **no WAL/fsync**. Do not compare its throughput directly with the durable Rust implementation without normalizing persistence. Prior funded alternate-runner tests validated five exact source blobs, not the full repository tree.
 
 ## Executed Atto actor RESP2 benchmark — diagnostic, not native parity
 
