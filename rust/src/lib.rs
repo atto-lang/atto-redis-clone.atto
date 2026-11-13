@@ -441,9 +441,12 @@ impl Engine {
         let lease=lock_store(&dir)?;
         let man=Manifest::load(&dir,cfg.shards)?;
         let mut shards: Vec<Mutex<Shard>>=Vec::with_capacity(cfg.shards);
-        for i in 0..cfg.shards {
+        // Manifest::load validates the persisted shard topology. Preserve a
+        // second fail-closed size check before admitting the in-memory shards.
+        if man.files.len() != cfg.shards { return Err(invalid("manifest shard count mismatch")); }
+        for names in &man.files {
             let mut shard=Shard::default();
-            for name in &man.files[i] { shard.segments.push(Segment::load(dir.join(name),&cfg)?); }
+            for name in names { shard.segments.push(Segment::load(dir.join(name),&cfg)?); }
             shards.push(Mutex::new(shard));
         }
         let mut wal=Wal::open(&dir,&cfg)?;
