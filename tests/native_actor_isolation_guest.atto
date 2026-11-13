@@ -1,0 +1,53 @@
+use namespace guest;
+
+// Identical native Atto fixture in NATS/Kafka/RMQ/Redis.
+// Checks two actor-local logical states, not physical heap segregation.
+// Production actor arena allocation, cross-actor pointer denial and physical
+// retirement require separate compiler/runtime instrumentation and tests.
+// No network/FS operation, blocking I/O, or actor-state loan crosses await.
+define actor ArenaIsolationProbe as
+  state {
+    let int counter = 0;
+  }
+
+  critical increment_first(): bool {
+    let bool first = false;
+    self.handle_state(|mut s| -> {
+      s.counter = s.counter + 1;
+      first = s.counter == 1;
+    });
+    return first;
+  }
+
+  receive(ActorMail<int> mail): void {
+    if mail.value == 1 then
+      if self.increment_first() then
+        self.send(1);
+      else
+        self.send(0);
+      fi
+    fi
+    self.end();
+    return;
+  }
+end
+
+pub async routine main(): void {
+  val first = spawn ArenaIsolationProbe();
+  val second = spawn ArenaIsolationProbe();
+  await first.get_ready();
+  await second.get_ready();
+  first.send(1);
+  second.send(1);
+  val int a = (await first.outputs.next()).value.unwrap().value;
+  val int b = (await second.outputs.next()).value.unwrap().value;
+  await first.get_done();
+  await second.get_done();
+  // Only a deterministic test receipt, not production I/O on actor carriers.
+  if a == 1 && b == 1 then
+    stdio.println("ATTO_TWO_ACTOR_LOGICAL_ISOLATION=PASS");
+  else
+    stdio.println("ATTO_TWO_ACTOR_LOGICAL_ISOLATION=FAIL");
+  fi
+  return;
+}
