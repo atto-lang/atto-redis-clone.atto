@@ -440,10 +440,15 @@ impl Engine {
         let dir=path.as_ref().to_path_buf(); fs::create_dir_all(&dir)?;
         let lease=lock_store(&dir)?;
         let man=Manifest::load(&dir,cfg.shards)?;
+        // Reject malformed manifests before allocating shard-owned resources.
+        // Do not silently omit shards (or index outside manifest bounds).
+        if man.files.len() != cfg.shards || man.marks.len() != cfg.shards {
+            return Err(invalid("manifest shard count mismatch"));
+        }
         let mut shards: Vec<Mutex<Shard>>=Vec::with_capacity(cfg.shards);
-        for i in 0..cfg.shards {
+        for names in &man.files {
             let mut shard=Shard::default();
-            for name in &man.files[i] { shard.segments.push(Segment::load(dir.join(name),&cfg)?); }
+            for name in names { shard.segments.push(Segment::load(dir.join(name),&cfg)?); }
             shards.push(Mutex::new(shard));
         }
         let mut wal=Wal::open(&dir,&cfg)?;

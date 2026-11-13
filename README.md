@@ -8,6 +8,12 @@ Run: `ATTO_JDK=<Labs JDK 25> ATTO_GRAAL_UP=<Graal 25.3.4.1 jars> scripts/run-nat
 
 The older sections below describe JDK-bridged experiments. Their RESP parsing ran in host Java, so their throughput figures are **not** AttoLang performance.
 
+## Standalone Java reference comparator — volatile, host-only
+
+`reference/java/RedisJavaReference.java` is an independent loopback-only NIO2 RESP2 server with an in-memory, binary-safe KV store. Run `bash scripts/bench-java-reference.sh` (JDK 21 and Rust required) to exercise the checked Rust client against live Java TCP and verify every SET/GET/DEL reply and trial cleanup.
+
+This reference does **not** execute Atto, and has **no WAL/fsync**. Do not compare its throughput directly with the durable Rust implementation without normalizing persistence. Prior funded alternate-runner tests validated five exact source blobs, not the full repository tree.
+
 ## Executed Atto actor RESP2 benchmark — diagnostic, not native parity
 
 The real AttoLang actor executes SET/GET/DEL behind a loopback JDK21 TCP/IPC

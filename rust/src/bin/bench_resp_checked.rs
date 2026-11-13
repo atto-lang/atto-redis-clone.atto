@@ -105,26 +105,35 @@ fn series(addr:&str,label:&str,trials:usize,n:usize,w:usize)->io::Result<f64>{
     Ok(med)
 }
 fn main()->io::Result<()>{
-    let args:Vec<String>=env::args().collect();let (mut atto,mut rust)=(None,None);
+    let args:Vec<String>=env::args().collect();let (mut atto,mut rust,mut java)=(None,None,None);
     let (mut n,mut w,mut trials)=(500usize,50usize,3usize);
     let mut i=1;while i<args.len(){
         if i+1>=args.len(){return Err(bad("missing option value"));}
         match args[i].as_str(){
             "--atto"=>atto=Some(args[i+1].clone()),
             "--rust"=>rust=Some(args[i+1].clone()),
+            "--java"=>java=Some(args[i+1].clone()),
             "--requests"=>n=args[i+1].parse().map_err(|_|bad("requests"))?,
             "--warmup"=>w=args[i+1].parse().map_err(|_|bad("warmup"))?,
             "--trials"=>trials=args[i+1].parse().map_err(|_|bad("trials"))?,
             _=>return Err(bad("unknown option")),
         }i+=2;
     }
-    if atto.is_none()&&rust.is_none(){return Err(bad("no endpoint"));}
+    if atto.is_none()&&rust.is_none()&&java.is_none(){return Err(bad("no endpoint"));}
     if n==0||n>1000000||w>100000||trials==0||trials>20{return Err(bad("invalid sizes"));}
     println!("BENCH_CONTEXT=50percent_SET_40percent_GET_10percent_DEL 64byte_values 1024key_space verified_replies warmup={w} requests={n} trials={trials}");
     println!("BENCH_ATTO_SCOPE=Atto_guest_actor_plus_JDK21_TCP_bridge_no_WAL");
+    println!("BENCH_JAVA_SCOPE=Java_NIO2_reference_volatile_no_WAL");
     let r=if let Some(a)=rust{Some(series(&a,"rust_fsync_always",trials,n,w)?)}else{None};
+    let j=if let Some(a)=java{Some(series(&a,"java_volatile_reference",trials,n,w)?)}else{None};
     let a=if let Some(a)=atto{Some(series(&a,"atto_actor_bridge_ephemeral",trials,n,w)?)}else{None};
+    if let (Some(r),Some(j))=(r,j){
+        println!("BENCH_RATIO java_volatile_over_rust_durable={:.4} comparable_durability=false",j/r);
+    }
     if let (Some(r),Some(a))=(r,a){println!("BENCH_RATIO atto_bridge_over_rust={:.4} comparable_durability=false",a/r);}
+    if let (Some(j),Some(a))=(j,a){
+        println!("BENCH_RATIO atto_bridge_over_java_volatile={:.4} comparable_durability=false",a/j);
+    }
     Ok(())
 }
 #[cfg(test)]
