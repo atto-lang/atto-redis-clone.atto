@@ -89,3 +89,29 @@ commit-tree mirror using the GitHub connector, with source and destination
 Git tree/blob identities verified before executing. Never put private
 compiler sources into a public repository, embed a cross-org checkout
 token, or accept an approximate copy or host-only result as native proof.
+
+
+## Rust-only actor execution gate (2026-11-12 update)
+
+The native LLVM actor run **must** use the dependency-free Rust source
+driver `tests/source_actor_e2e.rs` from LLVM compiler
+[PR #1745](https://github.com/ores-truffle-oreslang/oreslang-source.llvm/pull/1745).
+The former `python3 -I tests/source_actor_e2e.py` call was removed from this
+admission script to honor the project policy that tests are written in Rust.
+
+The reviewed Rust driver ports the same **16 real source→LLVM IR→Clang
+executable actor fixtures** and **49 rejected-source/no-IR fixtures** with
+strict actor allocation, await, cleanup and stop receipts. The source-only
+unit/compile gate (Rust 1.99.1) passed 4 oracle tests on
+[carrier run #43352510568](https://github.com/akrion-sim/akrion-sim-e2e/actions/runs/43352510568).
+**That run does not establish that a native actor guest executed.**
+The full LLVM compiler must be rebuilt at its exact reviewed HEAD/tree
+*with* the Rust driver and must execute all 65 cases before
+`LLVM_NATIVE_SOURCE_ACTORS_EXECUTED=PASS` may be emitted.
+
+No Python fallback, no reduction of the expected fixture count, no
+temporary host implementation in place of Atto source, and no broker
+performance / protocol parity claim is permitted. While LLVM #1745 is
+unmerged, an old approved compiler tree missing this Rust runner fails
+closed. Native .NET actor admission remains an expected-rejection gate;
+it is **not** .NET actor execution parity.
