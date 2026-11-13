@@ -50,6 +50,7 @@ jobs:
           javac --release 21 -Xlint:all -d build/transport bridge/AttoRedisRespBridge.java bridge/AttoRedisRespBridgeContractTest.java
       - name: Execute bridge protocol, binary, limit, and fail-closed regression tests
         run: java -cp build/transport AttoRedisRespBridgeContractTest
+      - uses: dtolnay/rust-toolchain@stable
       - name: Compile and test standalone Java in-memory RESP2 reference
         run: |
           mkdir -p build/java-reference
@@ -57,3 +58,5 @@ jobs:
           java -cp build/java-reference RedisJavaReferenceTest
           echo "JAVA_REFERENCE_SCOPE=VOLATILE_IN_MEMORY_ONLY"
           echo "ATTO_GUEST_EXECUTED=false"
+      - name: Execute checked Rust benchmark client against live Java RESP2 reference
+        run: bash scripts/bench-java-reference.sh
