@@ -62,9 +62,16 @@ if [[ "$mode" == llvm || "$mode" == both ]]; then
   echo "LLVM_AUDITOR_BINARY_SHA256=$(sha256sum "$auditor" | cut -d' ' -f1)"
   # Actual Atto source actor -> pinned LLVM compiler -> Clang native guest suite.
   # This suite proves its bounded i64 actor subset, not any broker protocol.
-  command -v python3 >/dev/null || { echo 'LLVM: python3 missing' >&2; exit 69; }
-  [[ -f "$llvm/tests/source_actor_e2e.py" ]] || { echo 'LLVM source actor suite missing' >&2; exit 69; }
-  if ! timeout --kill-after=10s 300s python3 -I "$llvm/tests/source_actor_e2e.py" \
+  # Use only the reviewed Rust-native actor guest matrix from LLVM #1745.
+  # Missing driver is a hard failure; no Python or scalar-only fallback.
+  driver_source="$llvm/tests/source_actor_e2e.rs"
+  [[ -f "$driver_source" && ! -L "$driver_source" ]] ||
+    { echo 'LLVM Rust source actor suite missing (LLVM #1745 prerequisite)' >&2; exit 69; }
+  echo "LLVM_RUST_ACTOR_DRIVER_BLOB=$(git -C "$llvm" hash-object -- "$driver_source")"
+  rustc --edition=2021 -O -D warnings "$driver_source" -o "$work/llvm-source-actor-rust"
+  [[ -s "$work/llvm-source-actor-rust" && -x "$work/llvm-source-actor-rust" ]] ||
+    { echo 'LLVM Rust source actor runner did not compile' >&2; exit 69; }
+  if ! timeout --kill-after=10s 300s "$work/llvm-source-actor-rust" \
       --compiler "$compiler" --clang "$(command -v clang)" --root "$llvm" \
       >"$work/llvm-source-actors.log" 2>&1; then
     cat "$work/llvm-source-actors.log" >&2
