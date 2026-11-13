@@ -1,0 +1,41 @@
+name: Native performance arithmetic gate (Rust only)
+on:
+  push:
+    paths:
+      - rust/src/bin/parity_gate.rs
+      - docs/NATIVE_PERFORMANCE_GATE.md
+      - .github/workflows/native-perf-arithmetic-gate.yml
+  pull_request:
+    paths:
+      - rust/src/bin/parity_gate.rs
+      - docs/NATIVE_PERFORMANCE_GATE.md
+      - .github/workflows/native-perf-arithmetic-gate.yml
+permissions:
+  contents: read
+jobs:
+  arithmetic-not-native-broker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Pin compiler toolchain
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: "1.99.1"
+          components: rustfmt,clippy
+      - name: Provenance of test source
+        run: |
+          git rev-parse HEAD
+          git rev-parse 'HEAD^{tree}'
+          git status --short
+      - name: Cargo tests (arithmetic gate only)
+        run: cargo test --manifest-path rust/Cargo.toml --bin parity_gate --offline
+      - name: Clippy (arithmetic gate only)
+        run: cargo clippy --manifest-path rust/Cargo.toml --bin parity_gate --offline -- -D warnings
+      - name: Explicit non-certification
+        run: |
+          echo 'NATIVE_ATTO_REDIS_EXECUTED=false'
+          echo 'NATIVE_ATTO_RUST_70_PERCENT_CERTIFIED=false'
