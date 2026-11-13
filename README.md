@@ -2,9 +2,9 @@
 
 ## Native AttoLang RESP2 server, 2026-11-13 (current)
 
-`src/server.atto` is a Redis-compatible server written entirely in AttoLang: RESP2 parsing, dispatch and replies, with one store task owning a `Map<Bytes, Bytes>` and a session task per connection. It passes **231/231** exact-byte conformance checks (`rust/src/bin/resp_conformance.rs`), the same checks real `redis-server` passes. Throughput on the Java backend is **8–11% of redis-server** without pipelining and about **1–2%** with pipelining, so the 70% target is **not met**. LLVM and .NET cannot compile it yet. Commands, numbers and causes: [docs/NATIVE_ATTO_SERVER_2026_11_13.md](docs/NATIVE_ATTO_SERVER_2026_11_13.md).
+`src/server.atto` is a Redis-compatible server written entirely in AttoLang: RESP2 parsing, dispatch and replies, with one store task owning a `Map<Bytes, Bytes>` and a session task per connection. It passes **231/231** exact-byte conformance checks (`rust/src/bin/resp_conformance.rs`), the same checks real `redis-server` passes. Throughput on the Java backend is **16–19% of redis-server** without pipelining and about **2%** with pipelining, so the 70% target is **not met**. LLVM and .NET cannot compile it yet. Commands, numbers and causes: [docs/NATIVE_ATTO_SERVER_2026_11_13.md](docs/NATIVE_ATTO_SERVER_2026_11_13.md).
 
-Run: `JAVA_HOME=<JDK 25 + Graal> java ... dev.oreslang.launcher.OresMain --allow=NETWORK,ACTOR_SPAWN src/server.atto` (listens on 127.0.0.1:6380).
+Run: `ATTO_JDK=<Labs JDK 25> ATTO_GRAAL_UP=<Graal 25.3.4.1 jars> scripts/run-native-server.sh /abs/oreslang-source.java` (listens on 127.0.0.1:6380).
 
 The older sections below describe JDK-bridged experiments. Their RESP parsing ran in host Java, so their throughput figures are **not** AttoLang performance.
 
