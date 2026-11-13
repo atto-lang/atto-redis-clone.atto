@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'ci/native-llvm-net-scalar.sh'
+      - 'ci/rust_native_gate_contract.rs'
       - 'tests/native/scalar_exact_source.atto'
       - 'tests/native/net_actor_reject.atto'
       - 'docs/NATIVE_LLVM_NET_ADMISSION.md'
@@ -32,6 +33,10 @@ jobs:
           test "$(git hash-object tests/native/scalar_exact_source.atto)" = "$(git rev-parse HEAD:tests/native/scalar_exact_source.atto)"
           echo "NET_UNSUPPORTED_ACTOR_BLOB=$(git hash-object tests/native/net_actor_reject.atto)"
           test "$(git hash-object tests/native/net_actor_reject.atto)" = "$(git rev-parse HEAD:tests/native/net_actor_reject.atto)"
+      - name: Rust-only actor admission contract tests
+        run: |
+          rustc --edition=2021 --test -D warnings ci/rust_native_gate_contract.rs -o /tmp/atto-rust-gate-tests
+          /tmp/atto-rust-gate-tests
       - name: Syntax and negative missing-pin admission
         run: |
           set -euo pipefail
