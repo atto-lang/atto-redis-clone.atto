@@ -329,6 +329,19 @@ fn atto_supervision_contract_is_not_executable_evidence() {
     ] {
         assert!(source.contains(name), "missing supervision requirement: {name}");
     }
+    // Source-shape conformance only: no compiler/parser/runtime is exercised.
+    // A supervisor is a distinct nominal type and must not inherit Actor.
+    for declaration in [
+        "define pub supervisor RedisRootSupervisor as",
+        "define supervisor StorageSupervisor as",
+        "define supervisor NetworkSupervisor as",
+        "define supervisor MaintenanceSupervisor as",
+    ] {
+        assert!(source.contains(declaration), "missing nominal supervisor: {declaration}");
+    }
+    assert!(!source.contains("extends Supervisor"));
+    assert_eq!(source.matches("self.spawn_supervisor(").count(), 4);
+    assert!(source.contains("self.spawn_actor(WalWriter(), restart=#permanent)"));
     assert!(kv.contains("final u64 storage_epoch;"));
     assert_eq!(kv.matches("StorageAdmission.enter(self.storage_epoch)").count(), 3);
     // The public router is not a sufficient guard: direct WAL/shard calls
