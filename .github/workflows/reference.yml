@@ -11,6 +11,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Validate tagged Atto actor sealed-state contract (static only)
+        run: python3 scripts/check-tagged-actor-state.py
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
