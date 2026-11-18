@@ -1,5 +1,13 @@
 # Atto Redis Clone
 
+## AttoLang naming and specification migration (2026-11-18)
+
+**AttoLang** is the current name of **Oreslang**. This is a legacy-organization checkout, `ores-truffle-oreslang/atto-redis-clone.atto`, and new corresponding work belongs in not yet verified as a 1:1 repo (browse [atto-lang](https://github.com/atto-lang)). Matching names do **not** establish GitHub transfer, identical commits, issues/PRs, release history or feature completeness. Preserve this checkout's historical commands and paths where still applicable.
+
+The **canonical language specification is [atto-spec](https://github.com/atto-lang/atto-spec)**; [atto-platform-conformance](https://github.com/atto-lang/atto-platform-conformance) owns portable executable positive/negative tests, [atto-common-source](https://github.com/atto-lang/atto-common-source) owns portable libraries, and `atto-source.*` owns backend implementation. Modern source targets include `.atto` and `snake_case`, explicit `borrow!`/`take!`/`copy!`/`copy!!`/`share!`, [implicit argument borrowing](https://github.com/atto-lang/atto-spec/blob/main/language/implicit-argument-borrow-v1.md), [file/module `define const` including one-time `os.read_env`](https://github.com/atto-lang/atto-spec/blob/main/language/file-module-const-v1.md), and [`<<<`/`>>>`/`ashr` bitwise shifts vs. `<<`/`>>` directional stream operations](https://github.com/atto-lang/atto-spec/blob/main/language/bitwise-and-stream-operators-v1.md). They are language contract targets, **not** evidence every legacy backend supports them.
+
+Keep working legacy `.ores`, CLI/package/ABI and wire identifiers until separately verified migrations. No Python tools, scripts or tests for new work; use Rust for support tools where appropriate. Feature parity claims require exact SHA/tree, target/toolchain, real compiled guest execution and positive/negative checks. Empty-step workflows and host-only tests are **not executed** guest parity evidence.
+
 ## Native AttoLang RESP2 server, 2026-11-13 (current)
 
 `src/server.atto` is a Redis-compatible server written entirely in AttoLang: RESP2 parsing, dispatch and replies, with one store task owning a `Map<Bytes, Bytes>` and a session task per connection. It passes **231/231** exact-byte conformance checks (`rust/src/bin/resp_conformance.rs`), the same checks real `redis-server` passes. Throughput on the Java backend is **16–19% of redis-server** without pipelining and about **2%** with pipelining, so the 70% target is **not met**. LLVM and .NET cannot compile it yet. Commands, numbers and causes: [docs/NATIVE_ATTO_SERVER_2026_11_13.md](docs/NATIVE_ATTO_SERVER_2026_11_13.md).
