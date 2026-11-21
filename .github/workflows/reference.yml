@@ -32,7 +32,10 @@ jobs:
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; rm -rf "$DATA_DIR"' EXIT
           sleep 2
-          ./rust/target/release/bench_resp --rust 127.0.0.1:16379 --requests 10000
+          # Real Rust reference only; the actual Atto guest is NOT invoked here.
+          ./rust/target/release/bench_resp --rust 127.0.0.1:16379 --requests 10000 --warmup 200 --trials 1 --clients 1 --pipeline 1
+          # Exercise binary RESP oracle, independent clients, and pipelining.
+          ./rust/target/release/bench_resp --rust 127.0.0.1:16379 --requests 4096 --warmup 256 --trials 1 --clients 4 --pipeline 16 --keys 128 --value-bytes 64
 
   java-transport-contract:
     name: JDK21 RESP2 bridge protocol tests (mock backend, Atto NOT_EXECUTED)
