@@ -147,3 +147,49 @@ Current restrictions: one client, ephemeral data, no actor-state sealing proof,
 no WAL/AOF/fsync durability, no Native Image AOT, no LLVM/.NET/Wasm/Forge parity.
 Benchmark clients may use blocking socket calls; production Atto and NIO2
 runtime code may not.
+
+
+## Single actor-output RESP2 fast path (executed 2026-11-11)
+
+The optional `guest/redis_actor_nio_single_reply.atto` keeps exactly the
+same **Atto actor-owned** map, command input semantics, and NIO2 listener as
+`redis_actor_nio_fast.atto`. On successful GET it reduces two actor-output
+messages (status followed by the hex-encoded payload) to one
+`VALUE:<lowercase hex>` envelope. New typed
+`socket.write_resp2_reply_async(string)` validates the bounded envelope in
+the Java NIO2 codec and writes the resulting RESP2 bytes using
+`AsynchronousSocketChannel` completion callbacks. It is **not** a blocking
+socket or Java-owned KV shortcut.
+
+[Exact-source funded carrier JDK 21 CI #43120760090](https://github.com/voxletra/voxletra-e2e/actions/runs/43120760090)
+completed successfully: **14/14 compiler/codec JUnit tests + 3/3 real-Atto
+guest/perf tests**, no skips, with binary/pipelined reply and malformed/
+oversized reply-envelope checks. 3 trial medians with 200 warm-up and 600 timed
+requests per trial, 64 binary keys, 64-byte values, 50/40/10 SET/GET/DEL:
+
+| Endpoint | Median ops/s |
+| --- | ---: |
+| Previous framed NIO2 / two actor outputs for GET | 2,843.5 |
+| **NIO2 / single actor output for GET** | **3,441.1** |
+| Official Redis 7.0.15, RDB/AOF disabled | 19,634.1 |
+
+The same-runner **+21.0%** is a short diagnostic result. **It is not stable
+across hosted runners**: [Oracle GraalVM 25 #43121431195](https://github.com/voxletra/voxletra-e2e/actions/runs/43121431195)
+measured previous NIO2 **2,794.2** versus single-output **2,866.3**
+ops/s (**+2.6%**) on a separate runner. Both have correct RESP replies.
+That GraalVM run **still used the fallback interpreter**: installed GraalVM
+compiler `25.0.4` is incompatible with Polyglot `25.3.4.1`.
+
+[Separate version-alignment CI #43121854063](https://github.com/voxletra/voxletra-e2e/actions/runs/43121854063)
+tested `-Dgraalvm.version=25.0.4` with the same immutable source tree. It
+**failed at compilation**, as that older Polyglot API lacks
+`Context.Builder.spawnIsolate(boolean)` required by
+`IsolatePolicy.java`. Do **not** remove the isolation gate or disable
+version checking to obtain misleading throughput numbers.
+
+**Next gates:** obtain an actually compatible optimizing GraalVM/Polyglot
+combination while preserving `spawnIsolate`; run longer alternating-order,
+multi-runner warm steady-state A/B benchmarks; develop an actor-owned binary
+`Bytes` type to eliminate hex allocations; then implement multi-client
+async-NIO backpressure and durable asynchronous WAL. Keep these changes
+DRAFT until the larger runtime and security contracts are proven.
