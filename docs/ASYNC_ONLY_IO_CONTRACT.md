@@ -86,3 +86,64 @@ of 1 MiB, and operates through JDK `AsynchronousServerSocketChannel`,
 No source org GitHub Actions minutes or unsafe public mirrors are required:
 use private approved funded-carrier branches with exact source blob SHAs
 and nonzero executed JUnit receipts.
+
+
+## Executed all-NIO Atto Redis gate (2026-11-11)
+
+The legacy JDK TCP + blocking child-stdio bridge remains only for compatibility
+testing. It is **not** the native async server and cannot be relabelled
+async-only. New native Atto guests must use the NIO2 capability runtime:
+`network.listen_async`, `listener.accept_async`, socket
+`read_bytes_async` / `write_bytes_async` (or bounded NIO2
+`read_resp2_hex_async` / `write_resp2_hex_async`), and `close_async`.
+No synchronous socket, stdin pipes, or blocking `Future.get` on actor carriers.
+
+- Compiler-backed [exact-source run #43108139883](https://github.com/voxletra/voxletra-e2e/actions/runs/43108139883): **12/12 real Atto compiler/Truffle NIO guest JUnit tests pass**; no failures, errors, or skips. Real actor binary RESP2, oversized/malformed rejection, and hash-collision binary-key identity were exercised.
+- Native Atto actor guest source blob: `e64e6241403762b6afb460b34b9c2a602ccd1c2e`.
+- [Same-runner run #43108684509](https://github.com/voxletra/voxletra-e2e/actions/runs/43108684509): **3 trials × 600 measured TCP requests** each; 50% SET / 40% GET / 10% DEL, binary keys and 64-byte values, 64-key fixed space, 200 warmups/trial, oracle-checked replies, per-trial cleanup (outside timer). Original 1KiB-read NIO Atto median **270.3 ops/s**; fingerprint+4KiB-read NIO Atto **302.6 ops/s**, up **11.97%** in this short diagnostic. Same host official Redis 7.0.15 with AOF/RDB disabled measured **51,218.8 ops/s**. They are different server architectures; this is not native optimized Truffle/AOT parity.
+- The stronger result is a bottleneck finding: the guest's per-byte RESP2 state machine and boxed `List<int>` are expensive under JDK21's reported interpreter fallback. Tuning the Map alone will not close the gap.
+
+The optional `guest/redis_actor_nio_fast.atto` takes a different,
+**executed and verified** architecture: NIO2's bounded incremental frame codec
+produces hex strings, while the Atto actor owns the sole `Map<string,string>`
+and processes each command in one typed incoming actor message. There is no
+Java-side KV substitute, child stdio, or blocking socket on this server path.
+A successful GET replies with a status and a second payload mail.
+
+### Real framed-NIO result (same runner)
+
+[Exact-source private CI #43110995803](https://github.com/voxletra/voxletra-e2e/actions/runs/43110995803)
+completed **SUCCESS**. The 12/12 real compiler/Truffle guest tests,
+2/2 additional throughput/binary-pipeline JUnit tests, and standalone
+async NIO host transport contract tests passed; no failed or skipped JUnit
+tests. Fast guest blob: `fb5f2480846417aac88513aaa166b1eeb3a47538`;
+original guest blob `6af96f78497268bac71e52b55dfa085ac6cd35ab`;
+fingerprint guest blob `e64e6241403762b6afb460b34b9c2a602ccd1c2e`.
+
+Ten commands per block (50% SET / 40% GET / 10% DEL), 64-byte binary
+values, 64 bounded binary keys, one sequential TCP connection, 200 warm-up
++ 600 timed operations per trial, three trials/endpoint, with every reply
+checked against a local oracle and all remaining keys correctly deleted
+outside timing. Official Redis 7.0.15 and Atto were both **ephemeral**.
+
+| Endpoint | Median ops/sec, 3 trials |
+| --- | ---: |
+| Atto guest RESP2 parser, old 1 KiB receive | 279.6 |
+| Atto guest RESP2 parser, fingerprint + 4 KiB receive | 324.6 |
+| **Atto-owned KV behind bounded NIO2 framed codec** | **4,893.2** |
+| Official Redis 7.0.15, AOF/RDB disabled | 56,077.2 |
+
+Framed-NIO measured **15.08×** the fingerprint/parser configuration
+on this CI runner; Redis still measured **~11.46×** the framed Atto
+throughput. In the framed actor's third trial, p50/p95/p99 were
+171/234/281 microseconds. It is a host-framed transport optimization,
+**not** an Atto-written RESP2 parser, zero-copy Bytes proof, or a
+native AOT language-speed ranking. The result is one shared-runner
+diagnostic sequence with short trials and interpreter fallback; it needs
+repeat independent and alternating-order benchmarks.
+
+
+Current restrictions: one client, ephemeral data, no actor-state sealing proof,
+no WAL/AOF/fsync durability, no Native Image AOT, no LLVM/.NET/Wasm/Forge parity.
+Benchmark clients may use blocking socket calls; production Atto and NIO2
+runtime code may not.
