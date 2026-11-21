@@ -193,3 +193,59 @@ multi-runner warm steady-state A/B benchmarks; develop an actor-owned binary
 `Bytes` type to eliminate hex allocations; then implement multi-client
 async-NIO backpressure and durable asynchronous WAL. Keep these changes
 DRAFT until the larger runtime and security contracts are proven.
+
+
+## Exact-source end-to-end owned-Bytes Atto Redis (2026-11-11)
+
+The optional `guest/redis_actor_nio_owned_bytes.atto` runs a **real compiled
+Atto actor** with the runtime-owned `Map<Bytes,Bytes>`. It preserves byte-exact
+NUL/invalid UTF-8/CRLF/empty-key-value semantics, single actor response mail,
+and callback-only `AsynchronousSocketChannel` through the NIO2
+`read_resp2_binary_async` and `write_resp2_binary_async` API. Unlike the
+older framed guest, it does **not** use hex-encoded key/value strings.
+
+The accepted binary parser copies accepted key/value bytes once from the
+reused receive buffer into immutable `OresBytes` instances, retaining bytewise
+equality/hashing, key-byte quotas, actor-mail accounting, and physically
+detached copies across private actor boundaries. This is allocation-reduced,
+**not** zero-copy. Framing, NIO and RESP encoding remain the Java backend's
+responsibility; KV state is owned solely by the Atto actor. The actor declares
+`StreamOperator<Tuple[int,Bytes,Bytes],Tuple[string,Bytes]>`; the compiler
+derives output types exclusively from that contract, and the independent
+ownership pass verifies the binary Map domain. No unsafe cast or skipped
+borrow/ownership check was needed.
+
+[Exact-source funded carrier SUCCESS run #43127930267](https://github.com/voxletra/voxletra-e2e/actions/runs/43127930267):
+verified SHA-256 pinned GraalVM CE25.3.4.1, optimizing runtime capability,
+zero fallback warnings, 15/15 JUnit across binary codec, Map domains and real
+Atto NIO/Redis tests; zero skipped/errors/failures. All binary-pipelined
+responses passed the oracle. The host-only mock client/test sources use
+blocking Java sockets, but neither the guest nor the production NIO2 runtime
+does.
+
+Same-runner median of 3 trials × 600 timed sequential ops, 200 warm-up, one
+client, 64 byte-key slots, 64-byte values, SET 50% / GET 40% / DEL 10%; Redis
+7.0.15 and Atto both ephemeral (Redis AOF/RDB off):
+
+| Endpoint | Median ops/s |
+|---|---:|
+| Original fully Atto bytewise parser | 220.5 |
+| Fingerprint Atto bytewise parser | 250.4 |
+| Java-framed NIO2 + Atto Map<string,string> actor | 2686.1 |
+| NIO2 + Atto single-output hex actor | 2946.9 |
+| **NIO2 + Atto actor Map<Bytes,Bytes> without hex** | **3052.6** |
+| Official Redis | 21199.6 |
+
+The owned-Bytes path was 1.036× the single-output hex path and 1.136× the
+original NIO2 framed path on this runner. **This is diagnostic, not stable
+proof of a broad production speedup**: hosted CPU variance and short
+measurement windows are substantial, and the architecture differs from
+Redis. The binary path is still ~6.9× slower than Redis here.
+
+**Explicit limitations:** one client, sequential request processing,
+in-memory only, no WAL/replication/TTL, no multi-backend or Native Image
+conformance, and no stress-tested cancellation/backpressure or hard real-time
+latency evidence. Older blocking stdio compatibility bridge files still
+exist in the repository and were not executed by this guest. Continue with
+longer randomized A/B runs and actor-scheduler/mailbox profiling before
+merging the optional fast path.
