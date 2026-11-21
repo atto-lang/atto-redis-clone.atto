@@ -1,0 +1,74 @@
+// EXPERIMENTAL: finite 100-connection async-only RESP2 integration gate.
+// All key/value state is private to this Atto actor's Map<Bytes,Bytes>.
+// NIO2 connection tasks and reply routing are runtime transport, NOT host KV.
+// Per-client in-flight=1; different TCP clients execute independently.
+// Does not claim async WAL, production graceful shutdown or AOT parity.
+define actor TaggedBinaryNioKvActor implements StreamOperator<Tuple[int,int,int,Bytes,Bytes],Tuple[int,int,string,Bytes]> as
+  state {
+    let Map<Bytes,Bytes> values;
+  }
+
+  on_start(): void {
+    self.handle_state(critical-write |s| -> {
+      s.values = ~map<Bytes,Bytes>();
+    });
+    return;
+  }
+
+  receive(ActorMail<Tuple[int,int,int,Bytes,Bytes]> mail): void {
+    const tuple = mail.value;
+    const int client_id = tuple[0];
+    const int request_id = tuple[1];
+    const int kind = tuple[2];
+    const Bytes key = tuple[3];
+    const Bytes value = tuple[4];
+
+    if kind == 3; do
+      self.handle_state(critical-write |s| -> {
+        s.values.set(key, value);
+      });
+      self.send((client_id, request_id, "OK", value));
+      return;
+    fi
+    if kind == 2; do
+      // Detach the immutable Bytes result before the read loan closes.
+      let String reply_kind = "NIL";
+      let Bytes reply_value = key;
+      self.handle_state(critical-read |s| -> {
+        val found = s.values.get_optional(key);
+        if found.is_none(); do
+          reply_kind = "NIL";
+        else
+          reply_kind = "VALUE";
+          reply_value = found.unwrap();
+        fi
+      });
+      self.send((client_id, request_id, reply_kind, reply_value));
+      return;
+    fi
+    if kind == 4; do
+      let bool deleted = false;
+      self.handle_state(critical-write |s| -> {
+        deleted = s.values.delete(key);
+      });
+      if deleted; do
+        self.send((client_id, request_id, "ONE", key));
+      else
+        self.send((client_id, request_id, "ZERO", key));
+      fi
+      return;
+    fi
+    self.send((client_id, request_id, "ERR", key));
+    return;
+  }
+end
+
+pub async routine main(): void {
+  val worker = spawn TaggedBinaryNioKvActor();
+  await worker.get_ready();
+  val listener = await network.listen_async("127.0.0.1", 16399);
+  await worker.serve_resp2_async(listener, 100, 100);
+  worker.stop();
+  await worker.get_done();
+  return;
+}
