@@ -1,0 +1,55 @@
+name: Native LLVM + .NET script preflight (source only)
+on:
+  pull_request:
+    paths:
+      - 'ci/native-llvm-net-scalar.sh'
+      - 'ci/rust_native_gate_contract.rs'
+      - 'tests/native/scalar_exact_source.atto'
+      - 'tests/native/net_actor_reject.atto'
+      - 'docs/NATIVE_LLVM_NET_ADMISSION.md'
+      - '.github/workflows/native-llvm-net-preflight.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Pin checked-out HEAD and Git tree
+        env:
+          EXPECTED: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo "APP_SOURCE_HEAD=$(git rev-parse HEAD)"
+          echo "APP_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
+          echo "FIXTURE_BLOB=$(git hash-object tests/native/scalar_exact_source.atto)"
+          test "$(git hash-object tests/native/scalar_exact_source.atto)" = "$(git rev-parse HEAD:tests/native/scalar_exact_source.atto)"
+          echo "NET_UNSUPPORTED_ACTOR_BLOB=$(git hash-object tests/native/net_actor_reject.atto)"
+          test "$(git hash-object tests/native/net_actor_reject.atto)" = "$(git rev-parse HEAD:tests/native/net_actor_reject.atto)"
+      - name: Rust-only actor admission contract tests
+        run: |
+          rustc --edition=2021 --test -D warnings ci/rust_native_gate_contract.rs -o /tmp/atto-rust-gate-tests
+          /tmp/atto-rust-gate-tests
+      - name: Syntax and negative missing-pin admission
+        run: |
+          set -euo pipefail
+          bash -n ci/native-llvm-net-scalar.sh
+          grep -Fq 'LLVM_NATIVE_SOURCE_ACTORS_EXECUTED=PASS' ci/native-llvm-net-scalar.sh
+          grep -Fq 'NET_NATIVE_ACTOR_' ci/native-llvm-net-scalar.sh
+          if env -u ATTO_APP_EXPECTED_SHA -u ATTO_APP_EXPECTED_TREE \
+             bash ci/native-llvm-net-scalar.sh both > /tmp/native-preflight.out 2> /tmp/native-preflight.err; then
+            echo 'UNSAFE: missing exact source pins were admitted!' >&2
+            exit 1
+          fi
+          test -s /tmp/native-preflight.err
+          echo 'SOURCE_ONLY_NATIVE_SCRIPT_PREFLIGHT=PASS'
+          echo 'REAL_LLVM_COMPILER_EXECUTED=false'
+          echo 'REAL_NET_NATIVEAOT_COMPILER_EXECUTED=false'
+          echo 'REAL_ATTO_BROKER_EXECUTED=false'

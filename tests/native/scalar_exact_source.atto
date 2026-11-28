@@ -1,0 +1,5 @@
+// Same byte-identical AttoLang source for LLVM AOT and .NET NativeAOT.
+// Scalar compiler admission ONLY. Not actor heap, I/O, borrow or broker evidence.
+define pub fnc main() : int {
+    return 6 * 7;
+}
